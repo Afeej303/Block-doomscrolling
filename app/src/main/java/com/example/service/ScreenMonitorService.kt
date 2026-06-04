@@ -98,18 +98,21 @@ class ScreenMonitorService : AccessibilityService() {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
                 val state = AppScreenState()
-                analyzeScreenState(rootNode, packageName, state)
+                val originalPackageName = event.packageName?.toString() ?: packageName
+                analyzeScreenState(rootNode, originalPackageName, state)
                 
-                Log.d(TAG, "Screen stats for $packageName -> safeTabSelected: ${state.isSafeTabActive}, reelsTabSelected: ${state.isShortsOrReelsTabActive}, activePlayer: ${state.hasActivePlayerView}")
+                Log.d(TAG, "Screen stats for $originalPackageName -> safeTabSelected: ${state.isSafeTabActive}, reelsTabSelected: ${state.isShortsOrReelsTabActive}, activePlayer: ${state.hasActivePlayerView}")
                 
-                val shouldBlock = if (state.isSafeTabActive) {
+                val shouldBlock = if (state.hasActivePlayerView) {
+                    true
+                } else if (state.isSafeTabActive) {
                     false
                 } else {
-                    state.isShortsOrReelsTabActive || state.hasActivePlayerView
+                    state.isShortsOrReelsTabActive
                 }
                 
                 if (shouldBlock) {
-                    Log.d(TAG, "Surgical block triggered for $packageName!")
+                    Log.d(TAG, "Surgical block triggered for $originalPackageName!")
                     performGlobalAction(GLOBAL_ACTION_BACK)
                 }
                 rootNode.recycle()
@@ -163,18 +166,18 @@ class ScreenMonitorService : AccessibilityService() {
         var hasActivePlayerView = false
     }
 
-    private fun isNodeOrRelativeSelected(node: AccessibilityNodeInfo): Boolean {
+    private fun isNodeSelected(node: AccessibilityNodeInfo): Boolean {
         if (node.isSelected) return true
-        var currentParent = node.parent
+        var p = node.parent
         var depth = 0
-        while (currentParent != null && depth < 3) {
-            if (currentParent.isSelected) {
-                currentParent.recycle()
+        while (p != null && depth < 2) {
+            if (p.isSelected) {
+                p.recycle()
                 return true
             }
-            val next = currentParent.parent
-            currentParent.recycle()
-            currentParent = next
+            val next = p.parent
+            p.recycle()
+            p = next
             depth++
         }
         return false
@@ -261,7 +264,7 @@ class ScreenMonitorService : AccessibilityService() {
         val text = node.text?.toString()?.lowercase() ?: ""
         val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
         
-        val isSelected = isNodeOrRelativeSelected(node)
+        val isSelected = isNodeSelected(node)
         
         when (packageName) {
             "com.google.android.youtube" -> {
@@ -271,6 +274,17 @@ class ScreenMonitorService : AccessibilityService() {
                 if (isYouTubeShortsTab(node) && isSelected) {
                     state.isShortsOrReelsTabActive = true
                 }
+                
+                // YouTube Home screen checks to prevent false back trigger from shorts previews
+                val isYtFeedIndicator = text.contains("suggested shorts") ||
+                                        text.contains("shorts shelf") ||
+                                        text.contains("trending shorts") ||
+                                        lowerViewId.contains("feed_filter") ||
+                                        lowerViewId.contains("youtube_logo")
+                if (isYtFeedIndicator) {
+                    state.isSafeTabActive = true
+                }
+                
                 val isShortsPlayer = lowerViewId.contains("shorts_video") || 
                                      lowerViewId.contains("shorts_player") || 
                                      lowerViewId.contains("reel_container") ||
@@ -290,8 +304,7 @@ class ScreenMonitorService : AccessibilityService() {
                 }
                 if (contentDesc.contains("shorts video player") || 
                     contentDesc.contains("youtube shorts player") || 
-                    contentDesc.contains("youtube shorts") ||
-                    contentDesc.equals("shorts", ignoreCase = true)
+                    contentDesc.contains("youtube shorts video")
                 ) {
                     if (!lowerViewId.contains("tab") && 
                         !lowerViewId.contains("button") && 
@@ -309,11 +322,26 @@ class ScreenMonitorService : AccessibilityService() {
                 if (isInstagramReelsTab(node) && isSelected) {
                     state.isShortsOrReelsTabActive = true
                 }
-                val isReelsPlayer = lowerViewId.contains("clips_video") || 
-                                    lowerViewId.contains("reel_viewer") || 
-                                    lowerViewId.contains("clips_viewer") ||
-                                    lowerViewId.contains("clips_video_container")
-                if (isReelsPlayer) {
+                
+                // Instagram Home/Explore screen checks to prevent false back trigger from posts
+                val isIgFeedIndicator = text.contains("suggested posts") ||
+                                        text.contains("suggested reels") ||
+                                        text.contains("search and explore") ||
+                                        text.contains("explore feed") ||
+                                        lowerViewId.contains("feed_root") ||
+                                        lowerViewId.contains("main_feed")
+                if (isIgFeedIndicator) {
+                    state.isSafeTabActive = true
+                }
+                
+                // Instagram Reels (clips) and Stories (reel_viewer/reel_view)
+                val isReelsOrStoryPlayer = lowerViewId.contains("clips_video") || 
+                                           lowerViewId.contains("clips_viewer") ||
+                                           lowerViewId.contains("clips_video_container") ||
+                                           lowerViewId.contains("reel_viewer") ||
+                                           lowerViewId.contains("reel_view")
+                
+                if (isReelsOrStoryPlayer) {
                     val isFeedOrGrid = lowerViewId.contains("grid") || 
                                        lowerViewId.contains("carousel") || 
                                        lowerViewId.contains("thumbnail") || 
@@ -321,35 +349,68 @@ class ScreenMonitorService : AccessibilityService() {
                                        lowerViewId.contains("preview") ||
                                        lowerViewId.contains("card") ||
                                        lowerViewId.contains("row") ||
-                                       lowerViewId.contains("tab")
+                                       lowerViewId.contains("tab") ||
+                                       lowerViewId.contains("button") ||
+                                       lowerViewId.contains("avatar")
                     if (!isFeedOrGrid) {
                         state.hasActivePlayerView = true
                     }
                 }
+                
                 if (contentDesc.contains("clips video") || 
+                    contentDesc.contains("instagram reels video") ||
                     contentDesc.contains("reels viewer") ||
-                    contentDesc.contains("instagram reels") ||
-                    contentDesc.equals("reels", ignoreCase = true)
+                    contentDesc.contains("reel by") ||
+                    contentDesc.contains("reels video")
                 ) {
-                    if (!lowerViewId.contains("tab") && 
-                        !lowerViewId.contains("button") && 
-                        !lowerViewId.contains("thumbnail")
-                    ) {
+                    val isFeedOrExclusion = lowerViewId.contains("tab") || 
+                                           lowerViewId.contains("button") || 
+                                           lowerViewId.contains("thumbnail") ||
+                                           lowerViewId.contains("grid") ||
+                                           lowerViewId.contains("carousel") ||
+                                           lowerViewId.contains("avatar")
+                    if (!isFeedOrExclusion) {
                         state.hasActivePlayerView = true
                     }
                 }
             }
-            "com.facebook.katana" -> {
+            "com.facebook.katana", "com.facebook.lite" -> {
                 if (isFacebookSafeTab(node) && isSelected) {
                     state.isSafeTabActive = true
                 }
                 if (isFacebookReelsTab(node) && isSelected) {
                     state.isShortsOrReelsTabActive = true
                 }
-                val isReelsPlayer = lowerViewId.contains("reels_viewer") || 
-                                    lowerViewId.contains("reels_video") || 
-                                    lowerViewId.contains("reels_tab_container")
-                if (isReelsPlayer) {
+                
+                // Facebook Home Feed safe check to guarantee home view is safe
+                val isFbFeedIndicator = text.contains("suggested reels") || 
+                                        contentDesc.contains("suggested reels") ||
+                                        text.contains("reels and short videos") ||
+                                        contentDesc.contains("reels and short videos") ||
+                                        text.contains("news feed") ||
+                                        text.contains("whats on your mind") ||
+                                        contentDesc.contains("whats on your mind") ||
+                                        text.contains("what's on your mind") ||
+                                        contentDesc.contains("what's on your mind")
+                if (isFbFeedIndicator) {
+                    state.isSafeTabActive = true
+                }
+                
+                // Track active player views
+                val isReelsPlayerId = lowerViewId.contains("reels_viewer") || 
+                                      lowerViewId.contains("reels_video") || 
+                                      lowerViewId.contains("reels_tab_container") ||
+                                      lowerViewId.contains("reel_video") || 
+                                      lowerViewId.contains("reel_player") ||
+                                      lowerViewId.contains("reels_container") ||
+                                      lowerViewId.contains("reels_layout") ||
+                                      lowerViewId.contains("reels_page") ||
+                                      lowerViewId.contains("reels_shell") ||
+                                      lowerViewId.contains("story_viewer") ||
+                                      lowerViewId.contains("stories_viewer") ||
+                                      (packageName == "com.facebook.lite" && (lowerViewId.contains("reels") || lowerViewId.contains("reel")))
+                
+                if (isReelsPlayerId) {
                     val isFeedOrGrid = lowerViewId.contains("grid") || 
                                        lowerViewId.contains("shelf") || 
                                        lowerViewId.contains("thumbnail") ||
@@ -362,14 +423,24 @@ class ScreenMonitorService : AccessibilityService() {
                         state.hasActivePlayerView = true
                     }
                 }
+                
+                // Text features for Reels detection
                 if (contentDesc.contains("reels viewer") || 
-                    contentDesc.contains("facebook reels") ||
-                    contentDesc.equals("reels", ignoreCase = true)
+                    contentDesc.contains("facebook reels video") ||
+                    contentDesc.contains("reel by") ||
+                    contentDesc.contains("reels video") ||
+                    contentDesc == "reels" ||
+                    text == "reels" ||
+                    text == "facebook reels" ||
+                    text.contains("reel by") ||
+                    text.contains("reels video")
                 ) {
-                    if (!lowerViewId.contains("tab") && 
-                        !lowerViewId.contains("button") && 
-                        !lowerViewId.contains("thumbnail")
-                    ) {
+                    val isFeedOrExclusion = lowerViewId.contains("tab") || 
+                                           lowerViewId.contains("button") || 
+                                           lowerViewId.contains("thumbnail") ||
+                                           text.contains("suggested reels") ||
+                                           contentDesc.contains("suggested reels")
+                    if (!isFeedOrExclusion) {
                         state.hasActivePlayerView = true
                     }
                 }
@@ -408,31 +479,64 @@ class ScreenMonitorService : AccessibilityService() {
     }
 
     private fun isUrlBarNode(node: AccessibilityNodeInfo): Boolean {
-        val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        if (viewId.isNotEmpty()) {
-            if (viewId.contains("url") || 
-                viewId.contains("address") || 
-                viewId.contains("location") || 
-                viewId.contains("omnibar") ||
-                viewId.contains("searchbar") ||
-                viewId.contains("search_box") ||
-                viewId.contains("search_src") ||
-                viewId.contains("search_edit")
-            ) {
+        // 1. Robust pattern-based text fallback (extremely reliable across browsers)
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
+        
+        val urlPatterns = listOf("http://", "https://", "www.")
+        val isUrlPattern = urlPatterns.any { text.startsWith(it) || contentDesc.startsWith(it) }
+        
+        val targetDomains = listOf("youtube.com", "instagram.com", "facebook.com", "twitter.com", "x.com", "m.youtube.com", "m.facebook.com")
+        val isTargetDomain = targetDomains.any { 
+            text == it || text.startsWith("$it/") || text.startsWith("www.$it") ||
+            contentDesc == it || contentDesc.startsWith("$it/") || contentDesc.startsWith("www.$it")
+        }
+        
+        if (isUrlPattern || isTargetDomain) {
+            val className = node.className?.toString() ?: ""
+            if (className.contains("TextView") || className.contains("EditText") || className.contains("View") || node.isEditable) {
                 return true
             }
         }
         
-        val text = node.text?.toString()?.lowercase() ?: ""
-        if (text.isNotEmpty() && (node.className?.contains("EditText") == true || node.className?.contains("TextView") == true)) {
-            if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("www.")) {
-                return true
-            }
-            val domains = listOf("youtube.com", "instagram.com", "facebook.com", "twitter.com", "x.com")
-            if (domains.any { text == it || text.startsWith("$it/") || text.startsWith("www.$it") }) {
-                return true
+        // 2. High precision Suffix view ID match
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        if (viewId.isNotEmpty()) {
+            val knownUrlBarSuffixes = listOf(
+                "url_bar",
+                "urlbar",
+                "location_bar",
+                "location_bar_edit_text",
+                "url_bar_text",
+                "url_field",
+                "omnibar",
+                "search_box_text",
+                "mozac_browser_toolbar_url_view",
+                "urlbar_title",
+                "url_view",
+                "url_input"
+            )
+            
+            val matchesId = knownUrlBarSuffixes.any { viewId.endsWith(it) || viewId.contains(it) }
+            if (matchesId) {
+                // Filter out common false-positives
+                val isFalsePositive = viewId.contains("suggest") || 
+                                     viewId.contains("button") || 
+                                     viewId.contains("icon") || 
+                                     viewId.contains("option") ||
+                                     viewId.contains("clear") ||
+                                     viewId.contains("history") ||
+                                     viewId.contains("bookmark") ||
+                                     viewId.contains("carousel") ||
+                                     viewId.contains("grid") ||
+                                     viewId.contains("list") ||
+                                     viewId.contains("tab")
+                if (!isFalsePositive) {
+                    return true
+                }
             }
         }
+        
         return false
     }
 
@@ -446,20 +550,51 @@ class ScreenMonitorService : AccessibilityService() {
             val twConfig = appConfigs["com.twitter.android"]
             val fbConfig = appConfigs["com.facebook.katana"]
             
-            fun isUrlActive(domain: String, subPaths: List<String> = emptyList()): Boolean {
-                val containsDomain = text.contains(domain) || contentDesc.contains(domain)
-                if (!containsDomain) return false
-                if (subPaths.isEmpty()) return true
-                return subPaths.any { text.contains(it) || contentDesc.contains(it) }
+            fun isYouTubeUrl(urlText: String, urlDesc: String): Boolean {
+                if (urlText.contains("youtube.com") || urlText.contains("m.youtube.com") || urlText.contains("youtu.be") ||
+                    urlDesc.contains("youtube.com") || urlDesc.contains("m.youtube.com") || urlDesc.contains("youtu.be")) {
+                    return true
+                }
+                return urlText == "youtube" || urlText == "m.youtube" || urlDesc == "youtube" || urlDesc == "m.youtube"
+            }
+            
+            fun isInstagramUrl(urlText: String, urlDesc: String): Boolean {
+                if (urlText.contains("instagram.com") || urlDesc.contains("instagram.com")) {
+                    return true
+                }
+                return urlText == "instagram" || urlDesc == "instagram"
+            }
+            
+            fun isTwitterUrl(urlText: String, urlDesc: String): Boolean {
+                if (urlText.contains("twitter.com") || urlText.contains("x.com") || urlText.contains("t.co") ||
+                    urlDesc.contains("twitter.com") || urlDesc.contains("x.com") || urlDesc.contains("t.co")) {
+                    return true
+                }
+                return urlText == "twitter" || urlText == "x" || urlText == "x.com" || urlDesc == "twitter" || urlDesc == "x" || urlDesc == "x.com"
+            }
+            
+            fun isFacebookUrl(urlText: String, urlDesc: String): Boolean {
+                if (urlText.contains("facebook.com") || urlText.contains("facebook.co") || urlText.contains("m.facebook") ||
+                    urlDesc.contains("facebook.com") || urlDesc.contains("facebook.co") || urlDesc.contains("m.facebook")) {
+                    if (urlText.contains("google.com/search") || urlDesc.contains("google.com/search")) {
+                        return false // Avoid blocking google searches about Facebook
+                    }
+                    return true
+                }
+                return urlText == "facebook" || urlText == "m.facebook" || urlDesc == "facebook" || urlDesc == "m.facebook"
+            }
+            
+            fun containsSubpath(urlText: String, urlDesc: String, subPaths: List<String>): Boolean {
+                return subPaths.any { urlText.contains(it) || urlDesc.contains(it) }
             }
             
             if (ytConfig != null) {
                 val isYtLimitReached = ytConfig.dailyLimitMinutes > 0 && ytConfig.timeUsedTodaySeconds >= ytConfig.dailyLimitMinutes * 60L
-                if (isYtLimitReached && isUrlActive("youtube.com")) {
+                if (isYtLimitReached && isYouTubeUrl(text, contentDesc)) {
                     triggerWebCounterpartBlock("YouTube", "youtube.com")
                     return true
                 }
-                if (ytConfig.blockShortsReels && isUrlActive("youtube.com", listOf("shorts"))) {
+                if (ytConfig.blockShortsReels && isYouTubeUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("shorts"))) {
                     triggerSurgicalWebBlock("YouTube Shorts")
                     return true
                 }
@@ -467,11 +602,11 @@ class ScreenMonitorService : AccessibilityService() {
             
             if (igConfig != null) {
                 val isIgLimitReached = igConfig.dailyLimitMinutes > 0 && igConfig.timeUsedTodaySeconds >= igConfig.dailyLimitMinutes * 60L
-                if (isIgLimitReached && isUrlActive("instagram.com")) {
+                if (isIgLimitReached && isInstagramUrl(text, contentDesc)) {
                     triggerWebCounterpartBlock("Instagram", "instagram.com")
                     return true
                 }
-                if (igConfig.blockShortsReels && isUrlActive("instagram.com", listOf("reels", "explore", "clips"))) {
+                if (igConfig.blockShortsReels && isInstagramUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("reels", "explore", "clips"))) {
                     triggerSurgicalWebBlock("Instagram Reels/Explore")
                     return true
                 }
@@ -479,11 +614,11 @@ class ScreenMonitorService : AccessibilityService() {
             
             if (twConfig != null) {
                 val isTwLimitReached = twConfig.dailyLimitMinutes > 0 && twConfig.timeUsedTodaySeconds >= twConfig.dailyLimitMinutes * 60L
-                if (isTwLimitReached && (isUrlActive("twitter.com") || isUrlActive("x.com"))) {
+                if (isTwLimitReached && isTwitterUrl(text, contentDesc)) {
                     triggerWebCounterpartBlock("X (Twitter)", "x.com")
                     return true
                 }
-                if (twConfig.blockShortsReels && (isUrlActive("twitter.com", listOf("explore", "trends")) || isUrlActive("x.com", listOf("explore", "trends")))) {
+                if (twConfig.blockShortsReels && isTwitterUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("explore", "trends"))) {
                     triggerSurgicalWebBlock("Twitter Explore")
                     return true
                 }
@@ -491,11 +626,11 @@ class ScreenMonitorService : AccessibilityService() {
             
             if (fbConfig != null) {
                 val isFbLimitReached = fbConfig.dailyLimitMinutes > 0 && fbConfig.timeUsedTodaySeconds >= fbConfig.dailyLimitMinutes * 60L
-                if (isFbLimitReached && isUrlActive("facebook.com")) {
+                if (isFbLimitReached && isFacebookUrl(text, contentDesc)) {
                     triggerWebCounterpartBlock("Facebook", "facebook.com")
                     return true
                 }
-                if (fbConfig.blockShortsReels && isUrlActive("facebook.com", listOf("reels", "watch"))) {
+                if (fbConfig.blockShortsReels && isFacebookUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("reels", "watch"))) {
                     triggerSurgicalWebBlock("Facebook Reels")
                     return true
                 }
