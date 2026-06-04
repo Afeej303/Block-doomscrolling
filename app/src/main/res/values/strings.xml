@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">ZenScroll</string>
+    <string name="accessibility_desc">Surgically exits infinite scrolling feeds (YouTube Shorts, Instagram Reels, X Explore, Facebook Reels) and tracks daily usage limits to foster digital wellbeing.</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "ZenScroll",
+  "description": "Blocks social media infinite scrolling (Reels, Shorts, Explore) and enforces customizable daily usage time limits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
