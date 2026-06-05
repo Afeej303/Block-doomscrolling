@@ -116,14 +116,25 @@ class ScreenMonitorService : AccessibilityService() {
         val targetPackage = if (rootPackageName.isNotEmpty()) rootPackageName else eventPackage
         val lowerTargetPkg = targetPackage.lowercase()
         
-        val isSettingsOrStore = lowerTargetPkg == "com.android.settings" ||
+        val myPackage = packageName.lowercase()
+        // Extremely broad matching for settings, security managers, device administrators,
+        // and installers across varying Android ROMs, ensuring we exclude our own app.
+        val isSettingsOrStore = (lowerTargetPkg != myPackage && !lowerTargetPkg.startsWith(myPackage)) && (
+                                lowerTargetPkg == "android" ||
                                 lowerTargetPkg.contains("settings") ||
                                 lowerTargetPkg.contains("securitycenter") ||
                                 lowerTargetPkg.contains("systemmanager") ||
                                 lowerTargetPkg.contains("safecenter") ||
-                                lowerTargetPkg == "android" ||
-                                lowerTargetPkg == "com.android.vending" ||
-                                lowerTargetPkg.contains("vending")
+                                lowerTargetPkg.contains("vending") ||
+                                lowerTargetPkg.contains("packageinstaller") ||
+                                lowerTargetPkg.contains("permissioncontroller") ||
+                                lowerTargetPkg.contains("security") ||
+                                lowerTargetPkg.contains("admin") ||
+                                lowerTargetPkg.contains("devicepolicy") ||
+                                lowerTargetPkg.contains("control") ||
+                                lowerTargetPkg.contains("installer") ||
+                                lowerTargetPkg.contains("controller")
+                                )
                                 
         if (isSettingsOrStore) {
             if (rootNode != null) {
@@ -787,56 +798,67 @@ class ScreenMonitorService : AccessibilityService() {
         var hasDeactivateButton = false   // "Deactivate this device admin app" button
         var hasAdminPageTitle = false     // "Device admin apps" or "Device administrators" header
 
-        fun collect(node: AccessibilityNodeInfo?) {
+        fun collect(node: AccessibilityNodeInfo?, depth: Int = 0) {
             if (node == null) return
             try {
-                val text = node.text?.toString()?.lowercase() ?: ""
-                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-                val viewId = node.viewIdResourceName?.lowercase() ?: ""
+                val text = node.text?.toString() ?: ""
+                val desc = node.contentDescription?.toString() ?: ""
+                val viewId = node.viewIdResourceName ?: ""
+                val cls = node.className?.toString() ?: ""
+
+                // DIAGNOSTIC: log every node so we can see what's actually on screen
+                if (text.isNotEmpty() || desc.isNotEmpty() || viewId.isNotEmpty()) {
+                    Log.d("ZenDiag", "${"  ".repeat(depth)}text='$text' desc='$desc' viewId='$viewId' cls='$cls' selected=${node.isSelected} enabled=${node.isEnabled}")
+                }
+
+                val textLower = text.lowercase()
+                val descLower = desc.lowercase()
+                val viewIdLower = viewId.lowercase()
 
                 // Our app name — covers both App Info and Device Admin pages
-                if (text.contains("zenscroll") || desc.contains("zenscroll")) {
+                if (textLower.contains("zenscroll") || descLower.contains("zenscroll")) {
                     hasZenScrollText = true
                 }
 
                 // App Info page — Force Stop button
-                if (text == "force stop" || desc == "force stop" ||
-                    viewId.contains("force_stop") || viewId.contains("left_button")
+                if (textLower.contains("force stop") || descLower.contains("force stop") ||
+                    textLower.contains("forcestop") || descLower.contains("forcestop") ||
+                    viewIdLower.contains("force_stop") || viewIdLower.contains("left_button")
                 ) {
                     hasForceStop = true
                 }
 
                 // App Info page — Uninstall button
-                if (text == "uninstall" || desc == "uninstall" ||
-                    viewId.contains("uninstall")
+                if (textLower.contains("uninstall") || descLower.contains("uninstall") ||
+                    viewIdLower.contains("uninstall")
                 ) {
                     hasUninstall = true
                 }
 
                 // Device Admin page — page-level title
-                if (text.contains("device admin") || desc.contains("device admin") ||
-                    text.contains("device administrator") || desc.contains("device administrator") ||
-                    text.contains("admin apps") || desc.contains("admin apps") ||
-                    viewId.contains("device_admin")
+                if (textLower.contains("device admin") || descLower.contains("device admin") ||
+                    textLower.contains("device administrator") || descLower.contains("device administrator") ||
+                    textLower.contains("admin apps") || descLower.contains("admin_apps") ||
+                    textLower.contains("admin app") || descLower.contains("admin app") ||
+                    viewIdLower.contains("device_admin")
                 ) {
                     hasAdminPageTitle = true
                 }
 
                 // Device Admin page — the dangerous deactivate/remove button
-                // Exact-match to avoid triggering on every "disable" in settings
-                if (text == "deactivate" || desc == "deactivate" ||
-                    text == "remove" || desc == "remove" ||
-                    text.contains("deactivate this") || desc.contains("deactivate this") ||
-                    text.contains("remove admin") || desc.contains("remove admin") ||
-                    (text.contains("turn off") && (text.contains("admin") || desc.contains("admin"))) ||
-                    viewId.contains("deactivate") || viewId.contains("remove_admin")
+                if (textLower.contains("deactivate") || descLower.contains("deactivate") ||
+                    textLower.contains("remove") || descLower.contains("remove") ||
+                    textLower.contains("deactivate this") || descLower.contains("deactivate this") ||
+                    textLower.contains("remove admin") || descLower.contains("remove admin") ||
+                    (textLower.contains("turn off") && (textLower.contains("admin") || descLower.contains("admin"))) ||
+                    viewIdLower.contains("deactivate") || viewIdLower.contains("remove_admin")
                 ) {
                     hasDeactivateButton = true
                 }
 
                 for (i in 0 until node.childCount) {
                     val child = node.getChild(i) ?: continue
-                    collect(child)
+                    collect(child, depth + 1)
                     try {
                         child.recycle()
                     } catch (e: Exception) {
@@ -848,7 +870,7 @@ class ScreenMonitorService : AccessibilityService() {
             }
         }
 
-        collect(rootNode)
+        collect(rootNode, 0)
 
         // Case 1: App Info page — app name visible alongside Force Stop or Uninstall
         val isAppInfoPage = hasZenScrollText && (hasForceStop || hasUninstall)
