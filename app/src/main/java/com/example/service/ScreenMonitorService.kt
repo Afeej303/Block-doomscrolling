@@ -632,68 +632,6 @@ class ScreenMonitorService : AccessibilityService() {
         }
     }
 
-    private fun isUrlBarNode(node: AccessibilityNodeInfo): Boolean {
-        // 1. Robust pattern-based text fallback (extremely reliable across browsers)
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
-        
-        val urlPatterns = listOf("http://", "https://", "www.")
-        val isUrlPattern = urlPatterns.any { text.startsWith(it) || contentDesc.startsWith(it) }
-        
-        val targetDomains = listOf("youtube.com", "instagram.com", "facebook.com", "twitter.com", "x.com", "m.youtube.com", "m.facebook.com")
-        val isTargetDomain = targetDomains.any { 
-            text == it || text.startsWith("$it/") || text.startsWith("www.$it") ||
-            contentDesc == it || contentDesc.startsWith("$it/") || contentDesc.startsWith("www.$it")
-        }
-        
-        if (isUrlPattern || isTargetDomain) {
-            val className = node.className?.toString() ?: ""
-            if (className.endsWith("TextView") || className.endsWith("EditText") || className.contains("android.widget.TextView") || className.contains("android.widget.EditText") || node.isEditable) {
-                return true
-            }
-        }
-        
-        // 2. High precision Suffix view ID match
-        val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        if (viewId.isNotEmpty()) {
-            val knownUrlBarSuffixes = listOf(
-                "url_bar",
-                "urlbar",
-                "location_bar",
-                "location_bar_edit_text",
-                "url_bar_text",
-                "url_field",
-                "omnibar",
-                "search_box_text",
-                "mozac_browser_toolbar_url_view",
-                "urlbar_title",
-                "url_view",
-                "url_input"
-            )
-            
-            val matchesId = knownUrlBarSuffixes.any { viewId.endsWith(it) || viewId.contains(it) }
-            if (matchesId) {
-                // Filter out common false-positives
-                val isFalsePositive = viewId.contains("suggest") || 
-                                     viewId.contains("button") || 
-                                     viewId.contains("icon") || 
-                                     viewId.contains("option") ||
-                                     viewId.contains("clear") ||
-                                     viewId.contains("history") ||
-                                     viewId.contains("bookmark") ||
-                                     viewId.contains("carousel") ||
-                                     viewId.contains("grid") ||
-                                     viewId.contains("list") ||
-                                     viewId.contains("tab")
-                if (!isFalsePositive) {
-                    return true
-                }
-            }
-        }
-        
-        return false
-    }
-
     private fun isYouTubeUrl(text: String, desc: String): Boolean {
         if (text.contains("youtube.com") || text.contains("m.youtube.com") || text.contains("youtu.be") ||
             desc.contains("youtube.com") || desc.contains("m.youtube.com") || desc.contains("youtu.be")) {
@@ -732,83 +670,100 @@ class ScreenMonitorService : AccessibilityService() {
         return subPaths.any { text.contains(it) || desc.contains(it) }
     }
 
-    private fun hasTargetWebSignal(text: String, desc: String): Boolean {
-        val combined = "$text $desc"
-        return combined.contains("youtube") || combined.contains("instagram") || combined.contains("facebook") || combined.contains("twitter") || combined.contains("x.com") || combined.contains("tiktok")
-    }
-
-    private fun checkAndBlockBrowser(node: AccessibilityNodeInfo): Boolean {
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
+    private fun checkAndBlockBrowser(rootNode: AccessibilityNodeInfo): Boolean {
+        var foundYoutube = false
+        var foundInstagram = false
+        var foundTwitter = false
+        var foundFacebook = false
         
-        val isUrlNode = isUrlBarNode(node)
-        val hasSignal = hasTargetWebSignal(text, contentDesc)
+        var foundShorts = false
+        var foundReels = false
+        var foundExploreTw = false
+        var foundExploreIg = false
+        var foundWatch = false
 
-        if (isUrlNode || hasSignal) {
-            val ytConfig = appConfigs["com.google.android.youtube"]
-            val igConfig = appConfigs["com.instagram.android"]
-            val twConfig = appConfigs["com.twitter.android"]
-            val fbConfig = appConfigs["com.facebook.katana"]
+        fun scanNodes(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
             
-            if (ytConfig != null) {
-                val isYtLimitReached = ytConfig.dailyLimitMinutes > 0 && ytConfig.timeUsedTodaySeconds >= ytConfig.dailyLimitMinutes * 60L
-                if (isYtLimitReached && isYouTubeUrl(text, contentDesc)) {
-                    triggerWebCounterpartBlock("YouTube", "youtube.com")
-                    return true
-                }
-                if (ytConfig.blockShortsReels && isYouTubeUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("shorts"))) {
-                    triggerSurgicalWebBlock("YouTube Shorts")
-                    return true
-                }
+            if (text.isNotEmpty() || desc.isNotEmpty()) {
+                if (isYouTubeUrl(text, desc)) { foundYoutube = true; Log.d("WebDiag", "Found YT: text='$text', desc='$desc'") }
+                if (isInstagramUrl(text, desc)) { foundInstagram = true; Log.d("WebDiag", "Found IG: text='$text', desc='$desc'") }
+                if (isTwitterUrl(text, desc)) { foundTwitter = true; Log.d("WebDiag", "Found TW: text='$text', desc='$desc'") }
+                if (isFacebookUrl(text, desc)) { foundFacebook = true; Log.d("WebDiag", "Found FB: text='$text', desc='$desc'") }
+                
+                if (containsSubpath(text, desc, listOf("shorts"))) { foundShorts = true; Log.d("WebDiag", "Found Shorts: text='$text', desc='$desc'") }
+                if (containsSubpath(text, desc, listOf("reels", "clips"))) { foundReels = true; Log.d("WebDiag", "Found Reels/Clips: text='$text', desc='$desc'") }
+                if (containsSubpath(text, desc, listOf("explore", "trends"))) { foundExploreTw = true; Log.d("WebDiag", "Found Explore/Trends: text='$text', desc='$desc'") }
+                if (containsSubpath(text, desc, listOf("explore"))) { foundExploreIg = true; Log.d("WebDiag", "Found Explore (IG): text='$text', desc='$desc'") }
+                if (containsSubpath(text, desc, listOf("watch"))) { foundWatch = true; Log.d("WebDiag", "Found Watch: text='$text', desc='$desc'") }
             }
             
-            if (igConfig != null) {
-                val isIgLimitReached = igConfig.dailyLimitMinutes > 0 && igConfig.timeUsedTodaySeconds >= igConfig.dailyLimitMinutes * 60L
-                if (isIgLimitReached && isInstagramUrl(text, contentDesc)) {
-                    triggerWebCounterpartBlock("Instagram", "instagram.com")
-                    return true
-                }
-                if (igConfig.blockShortsReels && isInstagramUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("reels", "explore", "clips"))) {
-                    triggerSurgicalWebBlock("Instagram Reels/Explore")
-                    return true
-                }
-            }
-            
-            if (twConfig != null) {
-                val isTwLimitReached = twConfig.dailyLimitMinutes > 0 && twConfig.timeUsedTodaySeconds >= twConfig.dailyLimitMinutes * 60L
-                if (isTwLimitReached && isTwitterUrl(text, contentDesc)) {
-                    triggerWebCounterpartBlock("X (Twitter)", "x.com")
-                    return true
-                }
-                if (twConfig.blockShortsReels && isTwitterUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("explore", "trends"))) {
-                    triggerSurgicalWebBlock("Twitter Explore")
-                    return true
-                }
-            }
-            
-            if (fbConfig != null) {
-                val isFbLimitReached = fbConfig.dailyLimitMinutes > 0 && fbConfig.timeUsedTodaySeconds >= fbConfig.dailyLimitMinutes * 60L
-                if (isFbLimitReached && isFacebookUrl(text, contentDesc)) {
-                    triggerWebCounterpartBlock("Facebook", "facebook.com")
-                    return true
-                }
-                if (fbConfig.blockShortsReels && isFacebookUrl(text, contentDesc) && containsSubpath(text, contentDesc, listOf("reels", "watch"))) {
-                    triggerSurgicalWebBlock("Facebook Reels")
-                    return true
-                }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i)
+                scanNodes(child)
+                child?.recycle()
             }
         }
         
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null) {
-                if (checkAndBlockBrowser(child)) {
-                    child.recycle()
-                    return true
-                }
-                child.recycle()
+        scanNodes(rootNode)
+
+        Log.d("WebDiag", "Web state: yt=$foundYoutube(shorts=$foundShorts), ig=$foundInstagram(reels=$foundReels), fb=$foundFacebook(reels=$foundReels, watch=$foundWatch)")
+
+        val ytConfig = appConfigs["com.google.android.youtube"]
+        val igConfig = appConfigs["com.instagram.android"]
+        val twConfig = appConfigs["com.twitter.android"]
+        val fbConfig = appConfigs["com.facebook.katana"]
+
+        if (ytConfig != null) {
+            val isYtLimitReached = ytConfig.dailyLimitMinutes > 0 && ytConfig.timeUsedTodaySeconds >= ytConfig.dailyLimitMinutes * 60L
+            if (isYtLimitReached && foundYoutube) {
+                triggerWebCounterpartBlock("YouTube", "youtube.com")
+                return true
+            }
+            if (ytConfig.blockShortsReels && foundYoutube && foundShorts) {
+                triggerSurgicalWebBlock("YouTube Shorts")
+                return true
             }
         }
+
+        if (igConfig != null) {
+            val isIgLimitReached = igConfig.dailyLimitMinutes > 0 && igConfig.timeUsedTodaySeconds >= igConfig.dailyLimitMinutes * 60L
+            if (isIgLimitReached && foundInstagram) {
+                triggerWebCounterpartBlock("Instagram", "instagram.com")
+                return true
+            }
+            if (igConfig.blockShortsReels && foundInstagram && (foundReels || foundExploreIg)) {
+                triggerSurgicalWebBlock("Instagram Reels/Explore")
+                return true
+            }
+        }
+
+        if (twConfig != null) {
+            val isTwLimitReached = twConfig.dailyLimitMinutes > 0 && twConfig.timeUsedTodaySeconds >= twConfig.dailyLimitMinutes * 60L
+            if (isTwLimitReached && foundTwitter) {
+                triggerWebCounterpartBlock("X (Twitter)", "x.com")
+                return true
+            }
+            if (twConfig.blockShortsReels && foundTwitter && foundExploreTw) {
+                triggerSurgicalWebBlock("Twitter Explore")
+                return true
+            }
+        }
+
+        if (fbConfig != null) {
+            val isFbLimitReached = fbConfig.dailyLimitMinutes > 0 && fbConfig.timeUsedTodaySeconds >= fbConfig.dailyLimitMinutes * 60L
+            if (isFbLimitReached && foundFacebook) {
+                triggerWebCounterpartBlock("Facebook", "facebook.com")
+                return true
+            }
+            if (fbConfig.blockShortsReels && foundFacebook && (foundReels || foundWatch)) {
+                triggerSurgicalWebBlock("Facebook Reels")
+                return true
+            }
+        }
+        
         return false
     }
 
