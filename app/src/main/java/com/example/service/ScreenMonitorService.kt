@@ -203,8 +203,6 @@ class ScreenMonitorService : AccessibilityService() {
                     val originalPackageName = event.packageName?.toString() ?: packageName
                     analyzeScreenState(rootNode, originalPackageName, state)
                     
-                    Log.d(TAG, "Screen stats for $originalPackageName -> safeTabSelected: ${state.isSafeTabActive}, reelsTabSelected: ${state.isShortsOrReelsTabActive}, activePlayer: ${state.hasActivePlayerView}")
-                    
                     val shouldBlock = if (state.isSafeTabActive) {
                         false
                     } else if (state.hasActivePlayerView) {
@@ -456,24 +454,27 @@ class ScreenMonitorService : AccessibilityService() {
                 }
                 
                 // Facebook Home Feed safe check to guarantee home view is safe (locale-independent)
-                val isFbFeedIndicator = text.contains("suggested reels") || 
-                                        contentDesc.contains("suggested reels") ||
-                                        text.contains("reels and short videos") ||
-                                        contentDesc.contains("reels and short videos") ||
-                                        text.contains("news feed") ||
-                                        text.contains("whats on your mind") ||
+                // We avoid generic "feed" or "status" or "isEditable" matches that trigger false positives in Reels.
+                val isFbFeedIndicator = text.contains("whats on your mind") || 
                                         contentDesc.contains("whats on your mind") ||
                                         text.contains("what's on your mind") ||
                                         contentDesc.contains("what's on your mind") ||
+                                        text.contains("create a post") ||
+                                        contentDesc.contains("create a post") ||
+                                        text.contains("news feed") ||
+                                        contentDesc.contains("news feed") ||
                                         lowerViewId.contains("composer") ||
-                                        lowerViewId.contains("status") ||
-                                        lowerViewId.contains("feed") ||
-                                        node.isEditable
+                                        lowerViewId.contains("whats_on_your_mind") ||
+                                        lowerViewId.contains("news_feed") ||
+                                        lowerViewId.contains("main_feed")
+                                        
                 if (isFbFeedIndicator) {
                     state.isSafeTabActive = true
                 }
                 
-                // Track active player views
+                // Reels detection based on specific ID keywords.
+                // We relaxed the exclusion of 'feed' and 'tab' to prevent false negatives,
+                // as actual Reels player structures often contain these keywords in their layout hierarchies.
                 val isReelsPlayerId = lowerViewId.contains("reels_viewer") || 
                                       lowerViewId.contains("reels_video") || 
                                       lowerViewId.contains("reels_tab_container") ||
@@ -485,79 +486,67 @@ class ScreenMonitorService : AccessibilityService() {
                                       lowerViewId.contains("reels_shell") ||
                                       lowerViewId.contains("story_viewer") ||
                                       lowerViewId.contains("stories_viewer") ||
-                                      (packageName == "com.facebook.lite" && (lowerViewId.contains("reels") || lowerViewId.contains("reel")))
+                                      lowerViewId.contains("reels_vp") ||
+                                      lowerViewId.contains("reel_vp") ||
+                                      (lowerViewId.contains("reel") && lowerViewId.contains("player"))
                 
                 if (isReelsPlayerId) {
-                    val isFeedOrGrid = lowerViewId.contains("grid") || 
-                                       lowerViewId.contains("shelf") || 
-                                       lowerViewId.contains("thumbnail") ||
-                                       lowerViewId.contains("feed") ||
-                                       lowerViewId.contains("preview") ||
-                                       lowerViewId.contains("card") ||
-                                       lowerViewId.contains("row") ||
-                                       lowerViewId.contains("tab")
-                    if (!isFeedOrGrid) {
-                        state.hasActivePlayerView = true
-                    }
-                }
-                
-                // Text features for Reels detection
-                if (contentDesc.contains("reels viewer") || 
-                    contentDesc.contains("facebook reels video") ||
-                    contentDesc.contains("reel by") ||
-                    contentDesc.contains("reels video") ||
-                    contentDesc == "reels" ||
-                    text == "reels" ||
-                    text == "facebook reels" ||
-                    text.contains("reel by") ||
-                    text.contains("reels video")
-                ) {
-                    val isFeedOrExclusion = lowerViewId.contains("tab") || 
-                                           lowerViewId.contains("button") || 
+                    // Exclude thumbnails, previews, grids, shelves, or carousels which represent previews on the safe feed.
+                    val isExposedPreview = lowerViewId.contains("grid") || 
+                                           lowerViewId.contains("shelf") || 
                                            lowerViewId.contains("thumbnail") ||
-                                           text.contains("suggested reels") ||
-                                           contentDesc.contains("suggested reels")
-                    if (!isFeedOrExclusion) {
+                                           lowerViewId.contains("preview") ||
+                                           lowerViewId.contains("carousel") ||
+                                           lowerViewId.contains("card")
+                    if (!isExposedPreview) {
                         state.hasActivePlayerView = true
                     }
                 }
                 
-                // Dedicated robust check for Facebook Lite Reels
-                if (packageName == "com.facebook.lite") {
-                    val isLiteReel = text == "reels" || contentDesc == "reels" ||
-                                     text == "reel" || contentDesc == "reel" ||
-                                     text == "facebook reels" || contentDesc == "facebook reels" ||
-                                     text.contains("reel by") || contentDesc.contains("reel by") ||
-                                     text.contains("reels video") || contentDesc.contains("reels video")
-                    
-                    if (isLiteReel) {
-                        val isExclusion = text.contains("suggested") || 
-                                          contentDesc.contains("suggested") ||
-                                          text.contains("shelf") ||
-                                          contentDesc.contains("shelf") ||
-                                          text.contains("grid") ||
-                                          contentDesc.contains("grid") ||
-                                          text.contains("carousel") ||
-                                          contentDesc.contains("carousel") ||
-                                          text.contains("thumbnail") ||
-                                          contentDesc.contains("thumbnail") ||
-                                          text.contains("and short videos") ||
-                                          contentDesc.contains("and short videos") ||
-                                          text.contains("whats on your") ||
-                                          contentDesc.contains("whats on your") ||
-                                          text.contains("what's on your") ||
-                                          contentDesc.contains("what's on your") ||
-                                          text.contains("create") ||
-                                          contentDesc.contains("create") ||
-                                          text.contains("posts") ||
-                                          contentDesc.contains("posts") ||
-                                          text.contains("tab") ||
-                                          contentDesc.contains("tab") ||
-                                          lowerViewId.contains("tab") ||
-                                          lowerViewId.contains("button")
-                        if (!isExclusion) {
-                            state.hasActivePlayerView = true
-                        }
+                // Bulletproof Reels text/desc indicators
+                val isReelsTextOrDesc = text.contains("share this reel") || 
+                                        contentDesc.contains("share this reel") ||
+                                        text.contains("remix this reel") || 
+                                        contentDesc.contains("remix this reel") ||
+                                        text.contains("reel by") || 
+                                        contentDesc.contains("reel by") ||
+                                        text.contains("reels video") || 
+                                        contentDesc.contains("reels video") ||
+                                        text.contains("facebook reels") || 
+                                        contentDesc.contains("facebook reels") ||
+                                        text.contains("reels viewer") || 
+                                        contentDesc.contains("reels viewer") ||
+                                        text.contains("original audio") || 
+                                        contentDesc.contains("original audio") ||
+                                        text.contains("original sound") || 
+                                        contentDesc.contains("original sound") ||
+                                        text.contains("audio used in this") || 
+                                        contentDesc.contains("audio used in this") ||
+                                        (packageName == "com.facebook.lite" && (
+                                            text == "reels" || contentDesc == "reels" ||
+                                            text == "reel" || contentDesc == "reel" ||
+                                            text.contains("comment on this") || contentDesc.contains("comment on this")
+                                        ))
+                
+                if (isReelsTextOrDesc) {
+                    // Double check we are not in feed previews, lists, tabs, or buttons on safe screens.
+                    val isExclusion = text.contains("suggested") || 
+                                      contentDesc.contains("suggested") ||
+                                      text.contains("shelf") ||
+                                      contentDesc.contains("shelf") ||
+                                      text.contains("grid") ||
+                                      contentDesc.contains("grid") ||
+                                      text.contains("carousel") ||
+                                      contentDesc.contains("carousel") ||
+                                      text.contains("thumbnail") ||
+                                      contentDesc.contains("thumbnail") ||
+                                      text.contains("and short videos") ||
+                                      contentDesc.contains("and short videos") ||
+                                      lowerViewId.contains("tab") ||
+                                      lowerViewId.contains("button")
+                                      
+                    if (!isExclusion) {
+                        state.hasActivePlayerView = true
                     }
                 }
             }
@@ -805,11 +794,6 @@ class ScreenMonitorService : AccessibilityService() {
                 val desc = node.contentDescription?.toString() ?: ""
                 val viewId = node.viewIdResourceName ?: ""
                 val cls = node.className?.toString() ?: ""
-
-                // DIAGNOSTIC: log every node so we can see what's actually on screen
-                if (text.isNotEmpty() || desc.isNotEmpty() || viewId.isNotEmpty()) {
-                    Log.d("ZenDiag", "${"  ".repeat(depth)}text='$text' desc='$desc' viewId='$viewId' cls='$cls' selected=${node.isSelected} enabled=${node.isEnabled}")
-                }
 
                 val textLower = text.lowercase()
                 val descLower = desc.lowercase()
