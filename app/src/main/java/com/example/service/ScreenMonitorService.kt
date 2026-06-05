@@ -89,8 +89,29 @@ class ScreenMonitorService : AccessibilityService() {
         
         val eventPackage = event.packageName?.toString() ?: ""
         
-        // Detect if user is navigating to Settings, Security Managers, or Play Store to force-stop, disable, or uninstall
-        val rootNode = rootInActiveWindow
+        // Find the root node of the active window with fallbacks
+        var rootNode = rootInActiveWindow
+        if (rootNode == null) {
+            val source = event.source
+            if (source != null) {
+                var current = source
+                var depth = 0
+                // Climb parent hierarchy to gather the root of the event's window
+                while (depth < 20) {
+                    val parent = current?.parent
+                    if (parent == null) {
+                        break
+                    }
+                    if (current != source) {
+                        current?.recycle() // Recycle intermediate node to avoid leak
+                    }
+                    current = parent
+                    depth++
+                }
+                rootNode = current
+            }
+        }
+        
         val rootPackageName = rootNode?.packageName?.toString() ?: ""
         val targetPackage = if (rootPackageName.isNotEmpty()) rootPackageName else eventPackage
         val lowerTargetPkg = targetPackage.lowercase()
@@ -100,6 +121,7 @@ class ScreenMonitorService : AccessibilityService() {
                                 lowerTargetPkg.contains("securitycenter") ||
                                 lowerTargetPkg.contains("systemmanager") ||
                                 lowerTargetPkg.contains("safecenter") ||
+                                lowerTargetPkg == "android" ||
                                 lowerTargetPkg == "com.android.vending" ||
                                 lowerTargetPkg.contains("vending")
                                 
@@ -753,58 +775,100 @@ class ScreenMonitorService : AccessibilityService() {
     override fun onInterrupt() {}
 
     private fun scanAndBlockAppInfo(rootNode: AccessibilityNodeInfo) {
-        var hasZenScrollText = false
-        var hasDangerousAppInfoButton = false
-        
-        fun search(node: AccessibilityNodeInfo?) {
-            if (node == null) return
-            val text = node.text?.toString() ?: ""
-            val desc = node.contentDescription?.toString() ?: ""
-            val viewId = node.viewIdResourceName ?: ""
-            
-            val lowerText = text.lowercase()
-            val lowerDesc = desc.lowercase()
-            val lowerViewId = viewId.lowercase()
+        if (!isSettingsLockedCached) return
 
-            if (lowerText.contains("zenscroll") || lowerDesc.contains("zenscroll")) {
-                hasZenScrollText = true
-            }
-            if (lowerText.contains("force stop") || lowerDesc.contains("force stop") ||
-                lowerText.contains("uninstall") || lowerDesc.contains("uninstall") ||
-                lowerText.contains("deactivate") || lowerDesc.contains("deactivate") ||
-                lowerText.contains("turn off") || lowerDesc.contains("turn off") ||
-                lowerText.contains("remove active") || lowerDesc.contains("remove active") ||
-                lowerText.contains("stop using") || lowerDesc.contains("stop using") ||
-                lowerText.contains("disable") || lowerDesc.contains("disable") ||
-                lowerViewId.contains("force") || lowerViewId.contains("uninstall") || 
-                lowerViewId.contains("deactivate") || lowerViewId.contains("button")
-            ) {
-                hasDangerousAppInfoButton = true
-            }
-            
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i)
-                if (child != null) {
-                    search(child)
-                    child.recycle()
+        val now = System.currentTimeMillis()
+        if (now - lastAppInfoBlockTime < 2000) return
+
+        var hasZenScrollText = false
+        var hasForceStop = false
+        var hasUninstall = false
+        // Device Admin page markers
+        var hasDeactivateButton = false   // "Deactivate this device admin app" button
+        var hasAdminPageTitle = false     // "Device admin apps" or "Device administrators" header
+
+        fun collect(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            try {
+                val text = node.text?.toString()?.lowercase() ?: ""
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                val viewId = node.viewIdResourceName?.lowercase() ?: ""
+
+                // Our app name — covers both App Info and Device Admin pages
+                if (text.contains("zenscroll") || desc.contains("zenscroll")) {
+                    hasZenScrollText = true
                 }
+
+                // App Info page — Force Stop button
+                if (text == "force stop" || desc == "force stop" ||
+                    viewId.contains("force_stop") || viewId.contains("left_button")
+                ) {
+                    hasForceStop = true
+                }
+
+                // App Info page — Uninstall button
+                if (text == "uninstall" || desc == "uninstall" ||
+                    viewId.contains("uninstall")
+                ) {
+                    hasUninstall = true
+                }
+
+                // Device Admin page — page-level title
+                if (text.contains("device admin") || desc.contains("device admin") ||
+                    text.contains("device administrator") || desc.contains("device administrator") ||
+                    text.contains("admin apps") || desc.contains("admin apps") ||
+                    viewId.contains("device_admin")
+                ) {
+                    hasAdminPageTitle = true
+                }
+
+                // Device Admin page — the dangerous deactivate/remove button
+                // Exact-match to avoid triggering on every "disable" in settings
+                if (text == "deactivate" || desc == "deactivate" ||
+                    text == "remove" || desc == "remove" ||
+                    text.contains("deactivate this") || desc.contains("deactivate this") ||
+                    text.contains("remove admin") || desc.contains("remove admin") ||
+                    (text.contains("turn off") && (text.contains("admin") || desc.contains("admin"))) ||
+                    viewId.contains("deactivate") || viewId.contains("remove_admin")
+                ) {
+                    hasDeactivateButton = true
+                }
+
+                for (i in 0 until node.childCount) {
+                    val child = node.getChild(i) ?: continue
+                    collect(child)
+                    try {
+                        child.recycle()
+                    } catch (e: Exception) {
+                        // ignore recycle exception
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error traversing accessibility node", e)
             }
         }
-        
-        search(rootNode)
-        
-        if (hasZenScrollText && hasDangerousAppInfoButton && isSettingsLockedCached) {
-            val now = System.currentTimeMillis()
-            if (now - lastAppInfoBlockTime > 2000) {
-                lastAppInfoBlockTime = now
-                Log.d(TAG, "App Info / Device Admin page for ZenScroll detected — redirecting")
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                val intent = Intent(this, com.example.MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    putExtra("SHOW_UNLOCK_PROMPT", true)
-                }
-                startActivity(intent)
+
+        collect(rootNode)
+
+        // Case 1: App Info page — app name visible alongside Force Stop or Uninstall
+        val isAppInfoPage = hasZenScrollText && (hasForceStop || hasUninstall)
+
+        // Case 2: Device Admin deactivation page — two-of-three rule handles OEM variation.
+        // Some OEMs don't surface the app name as a text node on this page, so we don't
+        // require all three signals.
+        val isDeviceAdminPage = (hasAdminPageTitle && hasDeactivateButton) ||
+                                (hasZenScrollText && hasDeactivateButton) ||
+                                (hasAdminPageTitle && hasZenScrollText)
+
+        if (isAppInfoPage || isDeviceAdminPage) {
+            lastAppInfoBlockTime = now
+            Log.d(TAG, "Protected page detected — appInfo=$isAppInfoPage adminPage=$isDeviceAdminPage — redirecting")
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            val intent = Intent(this, com.example.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("SHOW_UNLOCK_PROMPT", true)
             }
+            startActivity(intent)
         }
     }
 
