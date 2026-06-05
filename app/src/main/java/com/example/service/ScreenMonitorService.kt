@@ -446,29 +446,43 @@ class ScreenMonitorService : AccessibilityService() {
                 }
             }
             "com.facebook.katana", "com.facebook.lite" -> {
-                if (isFacebookSafeTab(node) && isSelected) {
+                if (isFacebookSafeTab(node) && isSelected && node.isVisibleToUser) {
                     state.isSafeTabActive = true
                 }
-                if (isFacebookReelsTab(node) && isSelected) {
+                if (isFacebookReelsTab(node) && isSelected && node.isVisibleToUser) {
                     state.isShortsOrReelsTabActive = true
                 }
                 
                 // Facebook Home Feed safe check to guarantee home view is safe (locale-independent)
                 // We avoid generic "feed" or "status" or "isEditable" matches that trigger false positives in Reels.
-                val isFbFeedIndicator = text.contains("whats on your mind") || 
-                                        contentDesc.contains("whats on your mind") ||
-                                        text.contains("what's on your mind") ||
-                                        contentDesc.contains("what's on your mind") ||
-                                        text.contains("create a post") ||
-                                        contentDesc.contains("create a post") ||
-                                        text.contains("news feed") ||
-                                        contentDesc.contains("news feed") ||
-                                        lowerViewId.contains("composer") ||
-                                        lowerViewId.contains("whats_on_your_mind") ||
-                                        lowerViewId.contains("news_feed") ||
-                                        lowerViewId.contains("main_feed")
-                                        
+                val isFbFeedIndicator = (text.contains("whats on your mind") || 
+                                         contentDesc.contains("whats on your mind") ||
+                                         text.contains("what's on your mind") ||
+                                         contentDesc.contains("what's on your mind") ||
+                                         text.contains("create a post") ||
+                                         contentDesc.contains("create a post") ||
+                                         text.contains("news feed") ||
+                                         contentDesc.contains("news feed") ||
+                                         lowerViewId.contains("composer") ||
+                                         lowerViewId.contains("whats_on_your_mind") ||
+                                         lowerViewId.contains("news_feed") ||
+                                         lowerViewId.contains("main_feed")) && node.isVisibleToUser
+                                         
                 if (isFbFeedIndicator) {
+                    state.isSafeTabActive = true
+                }
+
+                // Profile page indicators (locale-independent checks for profile sections)
+                val isProfilePage = (text == "posts" || text == "about" || text == "photos" || text == "videos" || text == "friends" ||
+                                      text.contains("mutual friends") || text.contains("add friend") || text == "message" || text.contains("joined facebook") ||
+                                      text.contains("lives in") || text.contains("edit profile") || text.contains("followed by")) && node.isVisibleToUser
+                if (isProfilePage) {
+                    state.isSafeTabActive = true
+                }
+
+                // Menu & Settings page indicators
+                val isMenuPage = (text == "settings" || text == "dark mode" || text == "log out" || text == "help & support" || text == "saved" || text == "find friends" || text == "pages" || text == "groups") && node.isVisibleToUser
+                if (isMenuPage) {
                     state.isSafeTabActive = true
                 }
                 
@@ -523,8 +537,9 @@ class ScreenMonitorService : AccessibilityService() {
                                         text.contains("audio used in this") || 
                                         contentDesc.contains("audio used in this") ||
                                         (packageName == "com.facebook.lite" && (
-                                            text == "reels" || contentDesc == "reels" ||
-                                            text == "reel" || contentDesc == "reel" ||
+                                            text.contains("reel") || contentDesc.contains("reel") ||
+                                            text.contains("double-tap") || contentDesc.contains("double-tap") ||
+                                            text.contains("remix") || contentDesc.contains("remix") ||
                                             text.contains("comment on this") || contentDesc.contains("comment on this")
                                         ))
                 
