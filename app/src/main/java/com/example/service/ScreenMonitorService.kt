@@ -211,9 +211,21 @@ class ScreenMonitorService : AccessibilityService() {
                         state.isShortsOrReelsTabActive
                     }
                     
+                    if (originalPackageName.contains("facebook")) {
+                        Log.d("FbDiag", "Screen analysis for $originalPackageName: isSafeTab=${state.isSafeTabActive}, hasActivePlayer=${state.hasActivePlayerView}, isShortsTab=${state.isShortsOrReelsTabActive} -> shouldBlock=$shouldBlock")
+                    }
+                    
                     if (shouldBlock) {
                         Log.d(TAG, "Surgical block triggered for $originalPackageName!")
-                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        
+                        var success = false
+                        if (originalPackageName.contains("facebook")) {
+                            success = findAndClickHomeTab(rootNode)
+                        }
+                        
+                        if (!success) {
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                        }
                     }
                     rootNode.recycle()
                 }
@@ -303,7 +315,6 @@ class ScreenMonitorService : AccessibilityService() {
         val text = node.text?.toString()?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
         if (text == "home" || desc == "home" || text == "news feed" || desc == "news feed") return true
-        if (text == "watch" || desc == "watch") return true
         if (text == "groups" || desc == "groups" || text == "groups tab" || desc == "groups tab") return true
         if (text == "marketplace" || desc == "marketplace" || text == "shop" || desc == "shop") return true
         if (text == "profile" || desc == "profile") return true
@@ -388,7 +399,7 @@ class ScreenMonitorService : AccessibilityService() {
                     }
                 }
             }
-            "com.instagram.android" -> {
+            "com.instagram.android", "com.instagram.lite" -> {
                 if (isInstagramSafeTab(node) && isSelected) {
                     state.isSafeTabActive = true
                 }
@@ -446,6 +457,10 @@ class ScreenMonitorService : AccessibilityService() {
                 }
             }
             "com.facebook.katana", "com.facebook.lite" -> {
+                if (node.isVisibleToUser && (text.isNotEmpty() || contentDesc.isNotEmpty() || lowerViewId.isNotEmpty())) {
+                    Log.d("FbDiag", "Node ($packageName): id='$lowerViewId', text='$text', desc='$contentDesc', isSelected=${node.isSelected}")
+                }
+                
                 if (isFacebookSafeTab(node) && isSelected && node.isVisibleToUser) {
                     state.isSafeTabActive = true
                 }
@@ -536,12 +551,16 @@ class ScreenMonitorService : AccessibilityService() {
                                         contentDesc.contains("original sound") ||
                                         text.contains("audio used in this") || 
                                         contentDesc.contains("audio used in this") ||
-                                        (packageName == "com.facebook.lite" && (
-                                            text.contains("reel") || contentDesc.contains("reel") ||
-                                            text.contains("double-tap") || contentDesc.contains("double-tap") ||
-                                            text.contains("remix") || contentDesc.contains("remix") ||
-                                            text.contains("comment on this") || contentDesc.contains("comment on this")
-                                        ))
+                                        text.contains("double-tap") || 
+                                        contentDesc.contains("double-tap") ||
+                                        text.contains("remix") || 
+                                        contentDesc.contains("remix") ||
+                                        text.contains("comment on this") || 
+                                        contentDesc.contains("comment on this") ||
+                                        text == "reels" || contentDesc == "reels" ||
+                                        text == "reel" || contentDesc == "reel" ||
+                                        contentDesc.contains("play current reel") ||
+                                        contentDesc.contains("play reel")
                 
                 if (isReelsTextOrDesc) {
                     // Double check we are not in feed previews, lists, tabs, or buttons on safe screens.
@@ -556,16 +575,14 @@ class ScreenMonitorService : AccessibilityService() {
                                       text.contains("thumbnail") ||
                                       contentDesc.contains("thumbnail") ||
                                       text.contains("and short videos") ||
-                                      contentDesc.contains("and short videos") ||
-                                      lowerViewId.contains("tab") ||
-                                      lowerViewId.contains("button")
+                                      contentDesc.contains("and short videos")
                                       
                     if (!isExclusion) {
                         state.hasActivePlayerView = true
                     }
                 }
             }
-            "com.twitter.android" -> {
+            "com.twitter.android", "com.twitter.lite", "com.twitter.android.lite" -> {
                 if (isTwitterSafeTab(node) && isSelected) {
                     state.isSafeTabActive = true
                 }
@@ -785,6 +802,52 @@ class ScreenMonitorService : AccessibilityService() {
     private fun triggerSurgicalWebBlock(featureLabel: String) {
         Log.d(TAG, "Surgically blocked $featureLabel in web browser")
         performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    private fun performClick(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        var current = AccessibilityNodeInfo.obtain(node)
+        while (current != null) {
+            if (current.isClickable) {
+                val success = current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (success) {
+                    current.recycle()
+                    return true
+                }
+            }
+            val parentNode = current.parent
+            current.recycle()
+            if (parentNode != null && parentNode != current) {
+                current = parentNode
+            } else {
+                current = null
+            }
+        }
+        return false
+    }
+
+    private fun findAndClickHomeTab(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+        
+        val isHomeTab = (text == "home" || desc.contains("home") || desc.contains("news feed")) &&
+                        (desc.contains("tab") || desc.contains("button") || text.contains("tab") || node.isClickable)
+                        
+        if (isHomeTab) {
+            if (performClick(node)) {
+                Log.d("FbDiag", "Successfully auto-clicked Home tab!")
+                return true
+            }
+        }
+        
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findAndClickHomeTab(child)
+            child.recycle()
+            if (found) return true
+        }
+        return false
     }
 
     override fun onInterrupt() {}
