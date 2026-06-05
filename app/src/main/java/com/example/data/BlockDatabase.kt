@@ -20,7 +20,6 @@ abstract class BlockDatabase : RoomDatabase() {
                     BlockDatabase::class.java,
                     "block_database"
                 )
-                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

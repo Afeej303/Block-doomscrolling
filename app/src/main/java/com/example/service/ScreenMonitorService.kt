@@ -19,8 +19,8 @@ class ScreenMonitorService : AccessibilityService() {
     private lateinit var repository: BlockRepository
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
-    private var currentForegroundPackage = ""
-    private var lastForegroundUpdateTime = 0L
+    private var activeForegroundPackage = ""
+    private var lastAnalyzeTime = 0L
     private val appConfigs = ConcurrentHashMap<String, AppBlockConfig>()
     
     private val BROWSER_PACKAGES = setOf(
@@ -28,7 +28,7 @@ class ScreenMonitorService : AccessibilityService() {
         "org.mozilla.firefox",
         "com.sec.android.app.sbrowser",
         "com.opera.browser",
-        "com.microsoft.empath",
+        "com.microsoft.emmx",
         "com.duckduckgo.mobile.android",
         "com.android.browser",
         "org.chromium.chrome"
@@ -50,6 +50,25 @@ class ScreenMonitorService : AccessibilityService() {
                 }
             }
         }
+
+        // 1-second background ticker to track usage precisely and trigger limits dynamically
+        serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(1000)
+                val curr = activeForegroundPackage
+                if (curr.isNotEmpty()) {
+                    val updated = repository.incrementAppUsage(curr, 1)
+                    if (updated != null) {
+                        val limitSeconds = updated.dailyLimitMinutes * 60L
+                        if (updated.dailyLimitMinutes > 0 && updated.timeUsedTodaySeconds >= limitSeconds) {
+                            withContext(Dispatchers.Main) {
+                                triggerFullBlock(updated)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun onServiceConnected() {
@@ -59,9 +78,26 @@ class ScreenMonitorService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         
-        var packageName = event.packageName?.toString() ?: return
+        val eventPackage = event.packageName?.toString() ?: ""
+        if (eventPackage.isNotEmpty()) {
+            val mapped = when (eventPackage) {
+                "com.facebook.lite" -> "com.facebook.katana"
+                "com.instagram.lite" -> "com.instagram.android"
+                "com.twitter.lite", "com.twitter.android.lite" -> "com.twitter.android"
+                else -> eventPackage
+            }
+            val trackingPkg = if (appConfigs.containsKey(mapped) && !BROWSER_PACKAGES.contains(mapped)) mapped else ""
+            if (activeForegroundPackage != trackingPkg) {
+                activeForegroundPackage = trackingPkg
+                if (trackingPkg.isNotEmpty()) {
+                    serviceScope.launch(Dispatchers.IO) {
+                        repository.checkAndResetAppUsage(trackingPkg)
+                    }
+                }
+            }
+        }
         
-        // Map Lite/Alternative versions of apps to leverage their parent app configurations
+        var packageName = eventPackage
         packageName = when (packageName) {
             "com.facebook.lite" -> "com.facebook.katana"
             "com.instagram.lite" -> "com.instagram.android"
@@ -75,16 +111,12 @@ class ScreenMonitorService : AccessibilityService() {
                 checkAndBlockBrowser(rootNode)
                 rootNode.recycle()
             }
-            updateTrackingStats(null)
             return
         }
         
         if (!appConfigs.containsKey(packageName)) {
-            updateTrackingStats(null)
             return
         }
-        
-        updateTrackingStats(packageName)
         
         val config = appConfigs[packageName] ?: return
         
@@ -95,56 +127,32 @@ class ScreenMonitorService : AccessibilityService() {
         }
         
         if (config.blockShortsReels) {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null) {
-                val state = AppScreenState()
-                val originalPackageName = event.packageName?.toString() ?: packageName
-                analyzeScreenState(rootNode, originalPackageName, state)
-                
-                Log.d(TAG, "Screen stats for $originalPackageName -> safeTabSelected: ${state.isSafeTabActive}, reelsTabSelected: ${state.isShortsOrReelsTabActive}, activePlayer: ${state.hasActivePlayerView}")
-                
-                val shouldBlock = if (state.hasActivePlayerView) {
-                    true
-                } else if (state.isSafeTabActive) {
-                    false
-                } else {
-                    state.isShortsOrReelsTabActive
-                }
-                
-                if (shouldBlock) {
-                    Log.d(TAG, "Surgical block triggered for $originalPackageName!")
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                }
-                rootNode.recycle()
-            }
-        }
-    }
-
-    private fun updateTrackingStats(newPackage: String?) {
-        val now = System.currentTimeMillis()
-        if (currentForegroundPackage.isNotEmpty()) {
-            val elapsedMs = now - lastForegroundUpdateTime
-            if (elapsedMs >= 1000) {
-                val elapsedSeconds = elapsedMs / 1000
-                val packageToUpdate = currentForegroundPackage
-                serviceScope.launch(Dispatchers.IO) {
-                    repository.incrementAppUsage(packageToUpdate, elapsedSeconds)
-                }
-                lastForegroundUpdateTime = now
-            }
-        }
-        
-        if (newPackage != null) {
-            if (currentForegroundPackage != newPackage) {
-                currentForegroundPackage = newPackage
-                lastForegroundUpdateTime = now
-                serviceScope.launch(Dispatchers.IO) {
-                    repository.checkAndResetAppUsage(newPackage)
+            val nowTime = System.currentTimeMillis()
+            if (nowTime - lastAnalyzeTime >= 500L) {
+                val rootNode = rootInActiveWindow
+                if (rootNode != null) {
+                    lastAnalyzeTime = nowTime
+                    val state = AppScreenState()
+                    val originalPackageName = event.packageName?.toString() ?: packageName
+                    analyzeScreenState(rootNode, originalPackageName, state)
+                    
+                    Log.d(TAG, "Screen stats for $originalPackageName -> safeTabSelected: ${state.isSafeTabActive}, reelsTabSelected: ${state.isShortsOrReelsTabActive}, activePlayer: ${state.hasActivePlayerView}")
+                    
+                    val shouldBlock = if (state.isSafeTabActive) {
+                        false
+                    } else if (state.hasActivePlayerView) {
+                        true
+                    } else {
+                        state.isShortsOrReelsTabActive
+                    }
+                    
+                    if (shouldBlock) {
+                        Log.d(TAG, "Surgical block triggered for $originalPackageName!")
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                    }
+                    rootNode.recycle()
                 }
             }
-        } else {
-            currentForegroundPackage = ""
-            lastForegroundUpdateTime = 0L
         }
     }
 
@@ -334,14 +342,12 @@ class ScreenMonitorService : AccessibilityService() {
                     state.isSafeTabActive = true
                 }
                 
-                // Instagram Reels (clips) and Stories (reel_viewer/reel_view)
-                val isReelsOrStoryPlayer = lowerViewId.contains("clips_video") || 
-                                           lowerViewId.contains("clips_viewer") ||
-                                           lowerViewId.contains("clips_video_container") ||
-                                           lowerViewId.contains("reel_viewer") ||
-                                           lowerViewId.contains("reel_view")
+                // Instagram Reels (clips) player
+                val isReelsPlayer = lowerViewId.contains("clips_video") || 
+                                    lowerViewId.contains("clips_viewer") ||
+                                    lowerViewId.contains("clips_video_container")
                 
-                if (isReelsOrStoryPlayer) {
+                if (isReelsPlayer) {
                     val isFeedOrGrid = lowerViewId.contains("grid") || 
                                        lowerViewId.contains("carousel") || 
                                        lowerViewId.contains("thumbnail") || 
@@ -382,7 +388,7 @@ class ScreenMonitorService : AccessibilityService() {
                     state.isShortsOrReelsTabActive = true
                 }
                 
-                // Facebook Home Feed safe check to guarantee home view is safe
+                // Facebook Home Feed safe check to guarantee home view is safe (locale-independent)
                 val isFbFeedIndicator = text.contains("suggested reels") || 
                                         contentDesc.contains("suggested reels") ||
                                         text.contains("reels and short videos") ||
@@ -391,7 +397,11 @@ class ScreenMonitorService : AccessibilityService() {
                                         text.contains("whats on your mind") ||
                                         contentDesc.contains("whats on your mind") ||
                                         text.contains("what's on your mind") ||
-                                        contentDesc.contains("what's on your mind")
+                                        contentDesc.contains("what's on your mind") ||
+                                        lowerViewId.contains("composer") ||
+                                        lowerViewId.contains("status") ||
+                                        lowerViewId.contains("feed") ||
+                                        node.isEditable
                 if (isFbFeedIndicator) {
                     state.isSafeTabActive = true
                 }
@@ -444,6 +454,45 @@ class ScreenMonitorService : AccessibilityService() {
                         state.hasActivePlayerView = true
                     }
                 }
+                
+                // Dedicated robust check for Facebook Lite Reels
+                if (packageName == "com.facebook.lite") {
+                    val isLiteReel = text == "reels" || contentDesc == "reels" ||
+                                     text == "reel" || contentDesc == "reel" ||
+                                     text == "facebook reels" || contentDesc == "facebook reels" ||
+                                     text.contains("reel by") || contentDesc.contains("reel by") ||
+                                     text.contains("reels video") || contentDesc.contains("reels video")
+                    
+                    if (isLiteReel) {
+                        val isExclusion = text.contains("suggested") || 
+                                          contentDesc.contains("suggested") ||
+                                          text.contains("shelf") ||
+                                          contentDesc.contains("shelf") ||
+                                          text.contains("grid") ||
+                                          contentDesc.contains("grid") ||
+                                          text.contains("carousel") ||
+                                          contentDesc.contains("carousel") ||
+                                          text.contains("thumbnail") ||
+                                          contentDesc.contains("thumbnail") ||
+                                          text.contains("and short videos") ||
+                                          contentDesc.contains("and short videos") ||
+                                          text.contains("whats on your") ||
+                                          contentDesc.contains("whats on your") ||
+                                          text.contains("what's on your") ||
+                                          contentDesc.contains("what's on your") ||
+                                          text.contains("create") ||
+                                          contentDesc.contains("create") ||
+                                          text.contains("posts") ||
+                                          contentDesc.contains("posts") ||
+                                          text.contains("tab") ||
+                                          contentDesc.contains("tab") ||
+                                          lowerViewId.contains("tab") ||
+                                          lowerViewId.contains("button")
+                        if (!isExclusion) {
+                            state.hasActivePlayerView = true
+                        }
+                    }
+                }
             }
             "com.twitter.android" -> {
                 if (isTwitterSafeTab(node) && isSelected) {
@@ -494,7 +543,7 @@ class ScreenMonitorService : AccessibilityService() {
         
         if (isUrlPattern || isTargetDomain) {
             val className = node.className?.toString() ?: ""
-            if (className.contains("TextView") || className.contains("EditText") || className.contains("View") || node.isEditable) {
+            if (className.endsWith("TextView") || className.endsWith("EditText") || className.contains("android.widget.TextView") || className.contains("android.widget.EditText") || node.isEditable) {
                 return true
             }
         }

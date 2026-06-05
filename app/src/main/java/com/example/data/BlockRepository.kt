@@ -6,7 +6,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 class BlockRepository(private val dao: BlockDao) {
+
+    private val dbMutex = Mutex()
 
     val allConfigs: Flow<List<AppBlockConfig>> = dao.getAllConfigsFlow()
     val securitySettings: Flow<SecuritySettings?> = dao.getSecuritySettingsFlow()
@@ -36,7 +41,7 @@ class BlockRepository(private val dao: BlockDao) {
         dao.insertOrUpdateSecurity(settings)
     }
 
-    suspend fun incrementAppUsage(packageName: String, secondsPassed: Long): AppBlockConfig? {
+    suspend fun incrementAppUsage(packageName: String, secondsPassed: Long): AppBlockConfig? = dbMutex.withLock {
         val config = dao.getConfigForApp(packageName) ?: return null
         val now = System.currentTimeMillis()
         
@@ -61,10 +66,10 @@ class BlockRepository(private val dao: BlockDao) {
             isBlockedNow = isBlockedNow
         )
         dao.insertOrUpdateConfig(updated)
-        return updated
+        updated
     }
 
-    suspend fun checkAndResetAppUsage(packageName: String): AppBlockConfig? {
+    suspend fun checkAndResetAppUsage(packageName: String): AppBlockConfig? = dbMutex.withLock {
         val config = dao.getConfigForApp(packageName) ?: return null
         val now = System.currentTimeMillis()
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -80,6 +85,6 @@ class BlockRepository(private val dao: BlockDao) {
             dao.insertOrUpdateConfig(updated)
             return updated
         }
-        return config
+        config
     }
 }

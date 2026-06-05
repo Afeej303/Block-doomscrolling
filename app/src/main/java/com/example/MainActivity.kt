@@ -706,6 +706,7 @@ fun RuleCard(viewModel: BlockViewModel, config: AppBlockConfig, isLocked: Boolea
 fun LockScreen(viewModel: BlockViewModel, securitySettings: SecuritySettings?) {
     val context = LocalContext.current
     var passwordInput by remember { mutableStateOf("") }
+    var confirmPasswordInput by remember { mutableStateOf("") }
     var durationDaysSelection by remember { mutableIntStateOf(7) } // Default 7 days
     var isEmergencyResetChecked by remember { mutableStateOf(false) }
 
@@ -922,6 +923,25 @@ fun LockScreen(viewModel: BlockViewModel, securitySettings: SecuritySettings?) {
                             modifier = Modifier.fillMaxWidth()
                         )
 
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = confirmPasswordInput,
+                            onValueChange = { confirmPasswordInput = it },
+                            label = { Text("Confirm Passcode") },
+                            placeholder = { Text("Re-enter passcode") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ElectricTeal,
+                                unfocusedBorderColor = SlateGrayLight,
+                                focusedLabelColor = ElectricTeal,
+                                focusedTextColor = ThemePrimaryText,
+                                unfocusedTextColor = ThemePrimaryText
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Duration selection
@@ -970,10 +990,13 @@ fun LockScreen(viewModel: BlockViewModel, securitySettings: SecuritySettings?) {
                         Button(
                             onClick = {
                                 if (passwordInput.isBlank()) {
-                                    Toast.makeText(context, "Please enter a passcode first", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Please enter a passcode", Toast.LENGTH_SHORT).show()
+                                } else if (passwordInput != confirmPasswordInput) {
+                                    Toast.makeText(context, "Passcodes do not match", Toast.LENGTH_SHORT).show()
                                 } else {
                                     viewModel.setLockSettings(passwordInput, durationDaysSelection)
                                     passwordInput = ""
+                                    confirmPasswordInput = ""
                                     Toast.makeText(context, "Dials are now safely locked!", Toast.LENGTH_SHORT).show()
                                 }
                             },

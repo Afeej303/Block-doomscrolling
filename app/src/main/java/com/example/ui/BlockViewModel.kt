@@ -147,12 +147,12 @@ class BlockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun hashPassword(password: String): String {
-        return try {
+        try {
             val digest = MessageDigest.getInstance("SHA-256")
             val bytes = digest.digest(password.toByteArray(charset("UTF-8")))
-            bytes.joinToString("") { "%02x".format(it) }
+            return bytes.joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
-            password
+            throw RuntimeException("SHA-256 encryption failed: ${e.message}", e)
         }
     }
 }
