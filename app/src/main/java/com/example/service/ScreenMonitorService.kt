@@ -89,14 +89,28 @@ class ScreenMonitorService : AccessibilityService() {
         
         val eventPackage = event.packageName?.toString() ?: ""
         
-        // Detect if user is navigating to Settings to force-stop or uninstall
-        if (eventPackage == "com.android.settings" || eventPackage.endsWith(".settings")) {
-            val rootNode = rootInActiveWindow
+        // Detect if user is navigating to Settings, Security Managers, or Play Store to force-stop, disable, or uninstall
+        val rootNode = rootInActiveWindow
+        val rootPackageName = rootNode?.packageName?.toString() ?: ""
+        val targetPackage = if (rootPackageName.isNotEmpty()) rootPackageName else eventPackage
+        val lowerTargetPkg = targetPackage.lowercase()
+        
+        val isSettingsOrStore = lowerTargetPkg == "com.android.settings" ||
+                                lowerTargetPkg.contains("settings") ||
+                                lowerTargetPkg.contains("securitycenter") ||
+                                lowerTargetPkg.contains("systemmanager") ||
+                                lowerTargetPkg.contains("safecenter") ||
+                                lowerTargetPkg == "com.android.vending" ||
+                                lowerTargetPkg.contains("vending")
+                                
+        if (isSettingsOrStore) {
             if (rootNode != null) {
                 scanAndBlockAppInfo(rootNode)
                 rootNode.recycle()
             }
             return
+        } else {
+            rootNode?.recycle()
         }
         
         if (eventPackage.isNotEmpty()) {
@@ -748,12 +762,22 @@ class ScreenMonitorService : AccessibilityService() {
             val desc = node.contentDescription?.toString() ?: ""
             val viewId = node.viewIdResourceName ?: ""
             
-            if (text.contains("ZenScroll", ignoreCase = true) || desc.contains("ZenScroll", ignoreCase = true)) {
+            val lowerText = text.lowercase()
+            val lowerDesc = desc.lowercase()
+            val lowerViewId = viewId.lowercase()
+
+            if (lowerText.contains("zenscroll") || lowerDesc.contains("zenscroll")) {
                 hasZenScrollText = true
             }
-            if (text.contains("Force stop", ignoreCase = true) || desc.contains("Force stop", ignoreCase = true) ||
-                text.contains("Uninstall", ignoreCase = true) || desc.contains("Uninstall", ignoreCase = true) ||
-                viewId.contains("force") || viewId.contains("uninstall") || viewId.contains("button")
+            if (lowerText.contains("force stop") || lowerDesc.contains("force stop") ||
+                lowerText.contains("uninstall") || lowerDesc.contains("uninstall") ||
+                lowerText.contains("deactivate") || lowerDesc.contains("deactivate") ||
+                lowerText.contains("turn off") || lowerDesc.contains("turn off") ||
+                lowerText.contains("remove active") || lowerDesc.contains("remove active") ||
+                lowerText.contains("stop using") || lowerDesc.contains("stop using") ||
+                lowerText.contains("disable") || lowerDesc.contains("disable") ||
+                lowerViewId.contains("force") || lowerViewId.contains("uninstall") || 
+                lowerViewId.contains("deactivate") || lowerViewId.contains("button")
             ) {
                 hasDangerousAppInfoButton = true
             }
@@ -773,7 +797,7 @@ class ScreenMonitorService : AccessibilityService() {
             val now = System.currentTimeMillis()
             if (now - lastAppInfoBlockTime > 2000) {
                 lastAppInfoBlockTime = now
-                Log.d(TAG, "App Info page for ZenScroll detected — redirecting")
+                Log.d(TAG, "App Info / Device Admin page for ZenScroll detected — redirecting")
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 val intent = Intent(this, com.example.MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
