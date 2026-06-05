@@ -27,13 +27,30 @@ class ScreenMonitorService : AccessibilityService() {
     
     private val BROWSER_PACKAGES = setOf(
         "com.android.chrome",
+        "org.chromium.chrome",
         "org.mozilla.firefox",
+        "org.mozilla.firefox_beta",
+        "org.mozilla.fennec_aurora",
+        "org.mozilla.focus",
         "com.sec.android.app.sbrowser",
+        "com.sec.android.app.sbrowser.beta",
         "com.opera.browser",
+        "com.opera.mini.native",
+        "com.opera.gx",
         "com.microsoft.emmx",
+        "com.microsoft.emmx.beta",
         "com.duckduckgo.mobile.android",
         "com.android.browser",
-        "org.chromium.chrome"
+        "com.brave.browser",
+        "com.vivaldi.browser",
+        "com.kiwibrowser.browser",
+        "org.bromite.bromite",
+        "org.cromite.cromite",
+        "ru.yandex.searchplugin",
+        "com.ecosia.android",
+        "com.UCMobile.intl",
+        "mark.via.gp",
+        "com.yandex.browser"
     )
     
     override fun onCreate() {
@@ -677,53 +694,61 @@ class ScreenMonitorService : AccessibilityService() {
         return false
     }
 
+    private fun isYouTubeUrl(text: String, desc: String): Boolean {
+        if (text.contains("youtube.com") || text.contains("m.youtube.com") || text.contains("youtu.be") ||
+            desc.contains("youtube.com") || desc.contains("m.youtube.com") || desc.contains("youtu.be")) {
+            return true
+        }
+        return text.contains("youtube") || desc.contains("youtube")
+    }
+
+    private fun isInstagramUrl(text: String, desc: String): Boolean {
+        if (text.contains("instagram.com") || desc.contains("instagram.com")) {
+            return true
+        }
+        return text.contains("instagram") || desc.contains("instagram")
+    }
+
+    private fun isTwitterUrl(text: String, desc: String): Boolean {
+        if (text.contains("twitter.com") || text.contains("x.com") || text.contains("t.co") ||
+            desc.contains("twitter.com") || desc.contains("x.com") || desc.contains("t.co")) {
+            return true
+        }
+        return text.contains("twitter") || text.contains("x.com") || desc.contains("twitter") || desc.contains("x.com")
+    }
+
+    private fun isFacebookUrl(text: String, desc: String): Boolean {
+        if (text.contains("facebook.com") || text.contains("facebook.co") || text.contains("m.facebook") ||
+            desc.contains("facebook.com") || desc.contains("facebook.co") || desc.contains("m.facebook")) {
+            if (text.contains("google.com/search") || desc.contains("google.com/search")) {
+                return false // Avoid blocking google searches about Facebook
+            }
+            return true
+        }
+        return text.contains("facebook") || desc.contains("facebook")
+    }
+
+    private fun containsSubpath(text: String, desc: String, subPaths: List<String>): Boolean {
+        return subPaths.any { text.contains(it) || desc.contains(it) }
+    }
+
+    private fun hasTargetWebSignal(text: String, desc: String): Boolean {
+        val combined = "$text $desc"
+        return combined.contains("youtube") || combined.contains("instagram") || combined.contains("facebook") || combined.contains("twitter") || combined.contains("x.com") || combined.contains("tiktok")
+    }
+
     private fun checkAndBlockBrowser(node: AccessibilityNodeInfo): Boolean {
-        if (isUrlBarNode(node)) {
-            val text = node.text?.toString()?.lowercase() ?: ""
-            val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
-            
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
+        
+        val isUrlNode = isUrlBarNode(node)
+        val hasSignal = hasTargetWebSignal(text, contentDesc)
+
+        if (isUrlNode || hasSignal) {
             val ytConfig = appConfigs["com.google.android.youtube"]
             val igConfig = appConfigs["com.instagram.android"]
             val twConfig = appConfigs["com.twitter.android"]
             val fbConfig = appConfigs["com.facebook.katana"]
-            
-            fun isYouTubeUrl(urlText: String, urlDesc: String): Boolean {
-                if (urlText.contains("youtube.com") || urlText.contains("m.youtube.com") || urlText.contains("youtu.be") ||
-                    urlDesc.contains("youtube.com") || urlDesc.contains("m.youtube.com") || urlDesc.contains("youtu.be")) {
-                    return true
-                }
-                return urlText == "youtube" || urlText == "m.youtube" || urlDesc == "youtube" || urlDesc == "m.youtube"
-            }
-            
-            fun isInstagramUrl(urlText: String, urlDesc: String): Boolean {
-                if (urlText.contains("instagram.com") || urlDesc.contains("instagram.com")) {
-                    return true
-                }
-                return urlText == "instagram" || urlDesc == "instagram"
-            }
-            
-            fun isTwitterUrl(urlText: String, urlDesc: String): Boolean {
-                if (urlText.contains("twitter.com") || urlText.contains("x.com") || urlText.contains("t.co") ||
-                    urlDesc.contains("twitter.com") || urlDesc.contains("x.com") || urlDesc.contains("t.co")) {
-                    return true
-                }
-                return urlText == "twitter" || urlText == "x" || urlText == "x.com" || urlDesc == "twitter" || urlDesc == "x" || urlDesc == "x.com"
-            }
-            
-            fun isFacebookUrl(urlText: String, urlDesc: String): Boolean {
-                if (urlText.contains("facebook.com") || urlText.contains("facebook.co") || urlText.contains("m.facebook") ||
-                    urlDesc.contains("facebook.com") || urlDesc.contains("facebook.co") || urlDesc.contains("m.facebook")) {
-                    if (urlText.contains("google.com/search") || urlDesc.contains("google.com/search")) {
-                        return false // Avoid blocking google searches about Facebook
-                    }
-                    return true
-                }
-                return urlText == "facebook" || urlText == "m.facebook" || urlDesc == "facebook" || urlDesc == "m.facebook"
-            }
-            
-            fun containsSubpath(urlText: String, urlDesc: String, subPaths: List<String>): Boolean {
-                return subPaths.any { urlText.contains(it) || urlDesc.contains(it) }
-            }
             
             if (ytConfig != null) {
                 val isYtLimitReached = ytConfig.dailyLimitMinutes > 0 && ytConfig.timeUsedTodaySeconds >= ytConfig.dailyLimitMinutes * 60L
