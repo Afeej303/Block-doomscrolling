@@ -22,6 +22,8 @@ class ScreenMonitorService : AccessibilityService() {
     private var activeForegroundPackage = ""
     private var lastAnalyzeTime = 0L
     private val appConfigs = ConcurrentHashMap<String, AppBlockConfig>()
+    private var isSettingsLockedCached = false
+    private var lastAppInfoBlockTime = 0L
     
     private val BROWSER_PACKAGES = setOf(
         "com.android.chrome",
@@ -48,6 +50,13 @@ class ScreenMonitorService : AccessibilityService() {
                 for (config in configs) {
                     appConfigs[config.packageName] = config
                 }
+            }
+        }
+
+        serviceScope.launch {
+            repository.securitySettings.collect { settings ->
+                isSettingsLockedCached = settings != null && settings.isLockActive && settings.lockUntilTimestamp > System.currentTimeMillis()
+                Log.d(TAG, "isSettingsLockedCached updated: $isSettingsLockedCached")
             }
         }
 
@@ -79,6 +88,17 @@ class ScreenMonitorService : AccessibilityService() {
         if (event == null) return
         
         val eventPackage = event.packageName?.toString() ?: ""
+        
+        // Detect if user is navigating to Settings to force-stop or uninstall
+        if (eventPackage == "com.android.settings" || eventPackage.endsWith(".settings")) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                scanAndBlockAppInfo(rootNode)
+                rootNode.recycle()
+            }
+            return
+        }
+        
         if (eventPackage.isNotEmpty()) {
             val mapped = when (eventPackage) {
                 "com.facebook.lite" -> "com.facebook.katana"
@@ -717,6 +737,52 @@ class ScreenMonitorService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
+
+    private fun scanAndBlockAppInfo(rootNode: AccessibilityNodeInfo) {
+        var hasZenScrollText = false
+        var hasDangerousAppInfoButton = false
+        
+        fun search(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            val text = node.text?.toString() ?: ""
+            val desc = node.contentDescription?.toString() ?: ""
+            val viewId = node.viewIdResourceName ?: ""
+            
+            if (text.contains("ZenScroll", ignoreCase = true) || desc.contains("ZenScroll", ignoreCase = true)) {
+                hasZenScrollText = true
+            }
+            if (text.contains("Force stop", ignoreCase = true) || desc.contains("Force stop", ignoreCase = true) ||
+                text.contains("Uninstall", ignoreCase = true) || desc.contains("Uninstall", ignoreCase = true) ||
+                viewId.contains("force") || viewId.contains("uninstall") || viewId.contains("button")
+            ) {
+                hasDangerousAppInfoButton = true
+            }
+            
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i)
+                if (child != null) {
+                    search(child)
+                    child.recycle()
+                }
+            }
+        }
+        
+        search(rootNode)
+        
+        if (hasZenScrollText && hasDangerousAppInfoButton && isSettingsLockedCached) {
+            val now = System.currentTimeMillis()
+            if (now - lastAppInfoBlockTime > 2000) {
+                lastAppInfoBlockTime = now
+                Log.d(TAG, "App Info page for ZenScroll detected — redirecting")
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                val intent = Intent(this, com.example.MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra("SHOW_UNLOCK_PROMPT", true)
+                }
+                startActivity(intent)
+            }
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()

@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
@@ -38,6 +39,7 @@ class BlockViewModel(application: Application) : AndroidViewModel(application) {
 
     val selectedTab = MutableStateFlow(0) // 0: Dashboard, 1: Block Rules, 2: Security Lock
     val blockedAppNotification = MutableStateFlow<Pair<String, String>?>(null) // (PackageName, AppName)
+    val forceShowUnlockPrompt = MutableStateFlow(false)
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -62,6 +64,37 @@ class BlockViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         return false
+    }
+
+    fun isDeviceAdminActive(context: Context): Boolean {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+        val comp = android.content.ComponentName(context, com.example.AdminReceiver::class.java)
+        return dpm.isAdminActive(comp)
+    }
+
+    fun requestDeviceAdmin(context: Context) {
+        val comp = android.content.ComponentName(context, com.example.AdminReceiver::class.java)
+        val intent = Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, comp)
+            putExtra(
+                android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Required to prevent ZenScroll from being uninstalled without your passcode."
+            )
+        }
+        if (context is android.app.Activity) {
+            context.startActivity(intent)
+        } else {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
+
+    fun removeDeviceAdminWithPassword(context: Context, password: String): Boolean {
+        if (!tryToUnlockSettings(password)) return false
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+        val comp = android.content.ComponentName(context, com.example.AdminReceiver::class.java)
+        dpm.removeActiveAdmin(comp)
+        return true
     }
 
     fun updateSurgicalRule(config: AppBlockConfig, enabled: Boolean) {

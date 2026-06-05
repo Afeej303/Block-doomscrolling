@@ -71,7 +71,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        intent?.let {
+            if (it.getBooleanExtra("SHOW_UNLOCK_PROMPT", false)) {
+                viewModel.forceShowUnlockPrompt.value = true
+                it.removeExtra("SHOW_UNLOCK_PROMPT")
+            }
+        }
     }
 
     private fun handleIntent(intent: Intent) {
@@ -79,6 +90,10 @@ class MainActivity : ComponentActivity() {
         val nameBlocked = intent.getStringExtra("BLOCKED_APP_NAME")
         if (packageBlocked != null && nameBlocked != null) {
             viewModel.blockedAppNotification.value = Pair(packageBlocked, nameBlocked)
+        }
+        if (intent.getBooleanExtra("SHOW_UNLOCK_PROMPT", false)) {
+            viewModel.forceShowUnlockPrompt.value = true
+            intent.removeExtra("SHOW_UNLOCK_PROMPT")
         }
     }
 }
@@ -100,97 +115,112 @@ fun MainScreen(viewModel: BlockViewModel) {
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar(
-                containerColor = SlateCharcoal,
-                tonalElevation = 8.dp
-            ) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { viewModel.selectedTab.value = 0 },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                    label = { Text("Dashboard") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = ElectricTeal,
-                        selectedTextColor = ElectricTeal,
-                        unselectedIconColor = TextGray,
-                        unselectedTextColor = TextGray,
-                        indicatorColor = AccentPill
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { viewModel.selectedTab.value = 1 },
-                    icon = { Icon(Icons.Default.Block, contentDescription = "Block Rules") },
-                    label = { Text("Block Rules") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = ElectricTeal,
-                        selectedTextColor = ElectricTeal,
-                        unselectedIconColor = TextGray,
-                        unselectedTextColor = TextGray,
-                        indicatorColor = AccentPill
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { viewModel.selectedTab.value = 2 },
-                    icon = { 
-                        Icon(
-                            if (viewModel.isConfigurationLocked()) Icons.Default.Lock else Icons.Default.LockOpen,
-                            contentDescription = "Security Lock"
-                        ) 
-                    },
-                    label = { Text("Security Lock") },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = ElectricTeal,
-                        selectedTextColor = ElectricTeal,
-                        unselectedIconColor = TextGray,
-                        unselectedTextColor = TextGray,
-                        indicatorColor = AccentPill
-                    )
-                )
+    val forceShowUnlockPrompt by viewModel.forceShowUnlockPrompt.collectAsStateWithLifecycle()
+    val isAppLockedGlobal = viewModel.isConfigurationLocked()
+    val isAccessDisabled = !isAccessActive
+    val showSecurityOverride = isAppLockedGlobal && (isAccessDisabled || forceShowUnlockPrompt)
+
+    if (showSecurityOverride) {
+        SecurityOverridePromptOverlay(
+            viewModel = viewModel,
+            isAccessDisabled = isAccessDisabled,
+            onSuccess = {
+                viewModel.forceShowUnlockPrompt.value = false
             }
-        },
-        modifier = Modifier.fillMaxSize()
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-                .background(CarbonBlack)
-        ) {
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    fadeIn() togetherWith fadeOut()
-                },
-                label = "TabTransition"
-            ) { targetTab ->
-                when (targetTab) {
-                    0 -> DashboardScreen(
-                        viewModel = viewModel,
-                        isAccessActive = isAccessActive,
-                        appConfigs = appConfigs
+        )
+    } else {
+        Scaffold(
+            bottomBar = {
+                NavigationBar(
+                    containerColor = SlateCharcoal,
+                    tonalElevation = 8.dp
+                ) {
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = { viewModel.selectedTab.value = 0 },
+                        icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
+                        label = { Text("Dashboard") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricTeal,
+                            selectedTextColor = ElectricTeal,
+                            unselectedIconColor = TextGray,
+                            unselectedTextColor = TextGray,
+                            indicatorColor = AccentPill
+                        )
                     )
-                    1 -> RulesScreen(
-                        viewModel = viewModel,
-                        appConfigs = appConfigs
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { viewModel.selectedTab.value = 1 },
+                        icon = { Icon(Icons.Default.Block, contentDescription = "Block Rules") },
+                        label = { Text("Block Rules") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricTeal,
+                            selectedTextColor = ElectricTeal,
+                            unselectedIconColor = TextGray,
+                            unselectedTextColor = TextGray,
+                            indicatorColor = AccentPill
+                        )
                     )
-                    2 -> LockScreen(
-                        viewModel = viewModel,
-                        securitySettings = securitySettings
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { viewModel.selectedTab.value = 2 },
+                        icon = { 
+                            Icon(
+                                if (viewModel.isConfigurationLocked()) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = "Security Lock"
+                            ) 
+                        },
+                        label = { Text("Security Lock") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricTeal,
+                            selectedTextColor = ElectricTeal,
+                            unselectedIconColor = TextGray,
+                            unselectedTextColor = TextGray,
+                            indicatorColor = AccentPill
+                        )
                     )
                 }
-            }
+            },
+            modifier = Modifier.fillMaxSize()
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize()
+                    .background(CarbonBlack)
+            ) {
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        fadeIn() togetherWith fadeOut()
+                    },
+                    label = "TabTransition"
+                ) { targetTab ->
+                    when (targetTab) {
+                        0 -> DashboardScreen(
+                            viewModel = viewModel,
+                            isAccessActive = isAccessActive,
+                            appConfigs = appConfigs
+                        )
+                        1 -> RulesScreen(
+                            viewModel = viewModel,
+                            appConfigs = appConfigs
+                        )
+                        2 -> LockScreen(
+                            viewModel = viewModel,
+                            securitySettings = securitySettings
+                        )
+                    }
+                }
 
-            // Render absolute full-screen block warning overlay if triggered
-            blockedNotification?.let { (packageName, appName) ->
-                BlockedWarningOverlay(
-                    appName = appName,
-                    packageName = packageName,
-                    onDismiss = { viewModel.blockedAppNotification.value = null }
-                )
+                // Render absolute full-screen block warning overlay if triggered
+                blockedNotification?.let { (packageName, appName) ->
+                    BlockedWarningOverlay(
+                        appName = appName,
+                        packageName = packageName,
+                        onDismiss = { viewModel.blockedAppNotification.value = null }
+                    )
+                }
             }
         }
     }
@@ -713,6 +743,14 @@ fun LockScreen(viewModel: BlockViewModel, securitySettings: SecuritySettings?) {
     val isLocked = viewModel.isConfigurationLocked()
     var countdownText by remember { mutableStateOf("") }
 
+    var isAdminActive by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            isAdminActive = viewModel.isDeviceAdminActive(context)
+            delay(1000)
+        }
+    }
+
     // Tick the countdown
     LaunchedEffect(key1 = isLocked, key2 = securitySettings) {
         if (isLocked) {
@@ -759,6 +797,10 @@ fun LockScreen(viewModel: BlockViewModel, securitySettings: SecuritySettings?) {
                 fontSize = 12.sp,
                 color = TextGray
             )
+        }
+
+        item {
+            DeviceAdminCard(viewModel = viewModel, isAdminActive = isAdminActive, isLocked = isLocked)
         }
 
         if (securitySettings == null) {
@@ -1100,5 +1142,214 @@ fun formatUsageTime(seconds: Long): String {
         hrs > 0 -> "${hrs}h ${mins}m"
         mins > 0 -> "${mins}m ${secs}s"
         else -> "${secs}s"
+    }
+}
+
+@Composable
+fun DeviceAdminCard(viewModel: BlockViewModel, isAdminActive: Boolean, isLocked: Boolean) {
+    val context = LocalContext.current
+    
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SlateCharcoal),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (isAdminActive) ElectricTeal.copy(0.3f) else DangerCoral.copy(0.3f),
+                RoundedCornerShape(16.dp)
+            )
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isAdminActive) Icons.Default.Shield else Icons.Default.Warning,
+                    contentDescription = "Device Admin Status",
+                    tint = if (isAdminActive) ElectricTeal else DangerCoral
+                )
+                Text(
+                    text = "Uninstall Protection",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = ThemePrimaryText
+                )
+            }
+            
+            Text(
+                text = if (isAdminActive) {
+                    "Device Administrator is active. ZenScroll cannot be uninstalled without disabling this first."
+                } else {
+                    "Device Administrator is inactive. Under Android, enabling Device Admin is required to block uninstallation of ZenScroll."
+                },
+                fontSize = 12.sp,
+                color = TextGray,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+            
+            if (isAdminActive) {
+                if (isLocked) {
+                    Text(
+                        text = "Protection Locked 🔒\nUnlock settings first using the passcode below to deactivate Device Admin.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DangerCoral
+                    )
+                } else {
+                    Button(
+                        onClick = {
+                            try {
+                                val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                                val comp = android.content.ComponentName(context, com.example.AdminReceiver::class.java)
+                                dpm.removeActiveAdmin(comp)
+                                Toast.makeText(context, "Uninstall Protection disabled", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = DangerCoral),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("DEACTIVATE UNINSTALL PROTECTION", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            } else {
+                Button(
+                    onClick = {
+                        viewModel.requestDeviceAdmin(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("ACTIVATE UNINSTALL PROTECTION", color = CarbonBlack, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SecurityOverridePromptOverlay(
+    viewModel: BlockViewModel,
+    isAccessDisabled: Boolean,
+    onSuccess: () -> Unit
+) {
+    val context = LocalContext.current
+    var passcodeEntered by remember { mutableStateOf("") }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.97f))
+            .clickable(enabled = false) {}, // Intercept back clicks
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(32.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(DangerCoral.copy(0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Configuration Locked",
+                    tint = DangerCoral,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text(
+                text = "SECURITY LOCK ENGAGED",
+                fontSize = 12.sp,
+                letterSpacing = 2.sp,
+                fontWeight = FontWeight.Bold,
+                color = DangerCoral,
+                fontFamily = FontFamily.Monospace
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = if (isAccessDisabled) "Re-enable Service Guard" else "Settings Protection",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = if (isAccessDisabled) {
+                    "ZenScroll's accessibility blocker service was turned off. Under your safety rules, you must enter your passcode to re-enable it and maintain your borders."
+                } else {
+                    "Passcode verification required to proceed after a settings intercept or restricted action."
+                },
+                fontSize = 14.sp,
+                color = TextGray,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp
+            )
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            OutlinedTextField(
+                value = passcodeEntered,
+                onValueChange = { passcodeEntered = it },
+                label = { Text("Enter Passcode") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ElectricTeal,
+                    unfocusedBorderColor = SlateGrayLight,
+                    focusedLabelColor = ElectricTeal,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Button(
+                onClick = {
+                    if (viewModel.tryToUnlockSettings(passcodeEntered)) {
+                        passcodeEntered = ""
+                        Toast.makeText(context, "Verification successful!", Toast.LENGTH_SHORT).show()
+                        onSuccess()
+                        if (isAccessDisabled) {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Could not open settings", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(context, "Incorrect passcode", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (isAccessDisabled) "UNLOCK AND RESTORE SERVICE" else "UNLOCK CONFIGURATION",
+                    color = CarbonBlack,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
