@@ -24,6 +24,7 @@ class ScreenMonitorService : AccessibilityService() {
     private val appConfigs = ConcurrentHashMap<String, AppBlockConfig>()
     private var isSettingsLockedCached = false
     private var lastAppInfoBlockTime = 0L
+    private var lastSettingsScanTime = 0L
     
     private val BROWSER_PACKAGES = setOf(
         "com.android.chrome",
@@ -104,73 +105,57 @@ class ScreenMonitorService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         
-        val eventPackage = event.packageName?.toString() ?: ""
-        
-        // Find the root node of the active window with fallbacks
-        var rootNode = rootInActiveWindow
-        if (rootNode == null) {
-            val source = event.source
-            if (source != null) {
-                var current = source
-                var depth = 0
-                // Climb parent hierarchy to gather the root of the event's window
-                while (depth < 20) {
-                    val parent = current?.parent
-                    if (parent == null) {
-                        break
-                    }
-                    if (current != source) {
-                        current?.recycle() // Recycle intermediate node to avoid leak
-                    }
-                    current = parent
-                    depth++
-                }
-                rootNode = current
-            }
-        }
-        
-        val rootPackageName = rootNode?.packageName?.toString() ?: ""
-        val targetPackage = if (rootPackageName.isNotEmpty()) rootPackageName else eventPackage
-        val lowerTargetPkg = targetPackage.lowercase()
-        
+        val eventPackageRaw = event.packageName?.toString() ?: ""
+        val lowerEventPkg = eventPackageRaw.lowercase()
         val myPackage = packageName.lowercase()
+        
         // Extremely broad matching for settings, security managers, device administrators,
         // and installers across varying Android ROMs, ensuring we exclude our own app.
-        val isSettingsOrStore = (lowerTargetPkg != myPackage && !lowerTargetPkg.startsWith(myPackage)) && (
-                                lowerTargetPkg == "android" ||
-                                lowerTargetPkg.contains("settings") ||
-                                lowerTargetPkg.contains("securitycenter") ||
-                                lowerTargetPkg.contains("systemmanager") ||
-                                lowerTargetPkg.contains("safecenter") ||
-                                lowerTargetPkg.contains("vending") ||
-                                lowerTargetPkg.contains("packageinstaller") ||
-                                lowerTargetPkg.contains("permissioncontroller") ||
-                                lowerTargetPkg.contains("security") ||
-                                lowerTargetPkg.contains("admin") ||
-                                lowerTargetPkg.contains("devicepolicy") ||
-                                lowerTargetPkg.contains("control") ||
-                                lowerTargetPkg.contains("installer") ||
-                                lowerTargetPkg.contains("controller")
+        val isSettingsOrStore = (lowerEventPkg != myPackage && !lowerEventPkg.startsWith(myPackage)) && (
+                                lowerEventPkg == "android" ||
+                                lowerEventPkg.contains("settings") ||
+                                lowerEventPkg.contains("securitycenter") ||
+                                lowerEventPkg.contains("systemmanager") ||
+                                lowerEventPkg.contains("safecenter") ||
+                                lowerEventPkg.contains("vending") ||
+                                lowerEventPkg.contains("packageinstaller") ||
+                                lowerEventPkg.contains("permissioncontroller") ||
+                                lowerEventPkg.contains("security") ||
+                                lowerEventPkg.contains("admin") ||
+                                lowerEventPkg.contains("devicepolicy") ||
+                                lowerEventPkg.contains("control") ||
+                                lowerEventPkg.contains("installer") ||
+                                lowerEventPkg.contains("controller")
                                 )
                                 
         if (isSettingsOrStore) {
-            if (rootNode != null) {
-                scanAndBlockAppInfo(rootNode)
-                rootNode.recycle()
+            val now = System.currentTimeMillis()
+            if (now - lastSettingsScanTime >= 800L) {
+                lastSettingsScanTime = now
+                val rootNode = rootInActiveWindow
+                if (rootNode != null) {
+                    scanAndBlockAppInfo(rootNode)
+                    rootNode.recycle()
+                }
             }
             return
-        } else {
-            rootNode?.recycle()
         }
         
-        if (eventPackage.isNotEmpty()) {
-            val mapped = when (eventPackage) {
-                "com.facebook.lite" -> "com.facebook.katana"
-                "com.instagram.lite" -> "com.instagram.android"
-                "com.twitter.lite", "com.twitter.android.lite" -> "com.twitter.android"
-                else -> eventPackage
-            }
-            val trackingPkg = if (appConfigs.containsKey(mapped) && !BROWSER_PACKAGES.contains(mapped)) mapped else ""
+        var packageName = eventPackageRaw
+        var isLiteApp = false
+        if (packageName == "com.facebook.lite" || packageName == "com.instagram.lite" || packageName == "com.twitter.lite" || packageName == "com.twitter.android.lite") {
+            isLiteApp = true
+        }
+        
+        val mappedPackageName = when (packageName) {
+            "com.facebook.lite" -> "com.facebook.katana"
+            "com.instagram.lite" -> "com.instagram.android"
+            "com.twitter.lite", "com.twitter.android.lite" -> "com.twitter.android"
+            else -> packageName
+        }
+        
+        if (packageName.isNotEmpty()) {
+            val trackingPkg = if (appConfigs.containsKey(mappedPackageName) && !BROWSER_PACKAGES.contains(mappedPackageName)) mappedPackageName else ""
             if (activeForegroundPackage != trackingPkg) {
                 activeForegroundPackage = trackingPkg
                 if (trackingPkg.isNotEmpty()) {
@@ -181,28 +166,20 @@ class ScreenMonitorService : AccessibilityService() {
             }
         }
         
-        var packageName = eventPackage
-        packageName = when (packageName) {
-            "com.facebook.lite" -> "com.facebook.katana"
-            "com.instagram.lite" -> "com.instagram.android"
-            "com.twitter.lite", "com.twitter.android.lite" -> "com.twitter.android"
-            else -> packageName
-        }
-        
         if (BROWSER_PACKAGES.contains(packageName)) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
-                checkAndBlockBrowser(rootNode)
+                checkAndBlockBrowser(rootNode, packageName)
                 rootNode.recycle()
             }
             return
         }
         
-        if (!appConfigs.containsKey(packageName)) {
+        if (!appConfigs.containsKey(mappedPackageName)) {
             return
         }
         
-        val config = appConfigs[packageName] ?: return
+        val config = appConfigs[mappedPackageName] ?: return
         
         val limitSeconds = config.dailyLimitMinutes * 60L
         if (config.dailyLimitMinutes > 0 && config.timeUsedTodaySeconds >= limitSeconds) {
@@ -213,30 +190,37 @@ class ScreenMonitorService : AccessibilityService() {
         if (config.blockShortsReels) {
             val nowTime = System.currentTimeMillis()
             if (nowTime - lastAnalyzeTime >= 500L) {
+                // Determine if we should just full block lite apps when shorts/reels is enabled
+                if (isLiteApp && (packageName.contains("facebook") || packageName.contains("instagram"))) {
+                    lastAnalyzeTime = nowTime
+                    // The user requested to block lite apps completely if they have reels block turned on
+                    triggerFullBlock(config)
+                    return
+                }
+                
                 val rootNode = rootInActiveWindow
                 if (rootNode != null) {
                     lastAnalyzeTime = nowTime
                     val state = AppScreenState()
-                    val originalPackageName = event.packageName?.toString() ?: packageName
-                    analyzeScreenState(rootNode, originalPackageName, state)
+                    analyzeScreenState(rootNode, packageName, state)
                     
-                    val shouldBlock = if (state.isSafeTabActive) {
-                        false
-                    } else if (state.hasActivePlayerView) {
+                    val shouldBlock = if (state.isShortsOrReelsTabActive) {
                         true
+                    } else if (state.isSafeTabActive) {
+                        false
                     } else {
-                        state.isShortsOrReelsTabActive
+                        state.hasActivePlayerView
                     }
                     
-                    if (originalPackageName.contains("facebook")) {
-                        Log.d("FbDiag", "Screen analysis for $originalPackageName: isSafeTab=${state.isSafeTabActive}, hasActivePlayer=${state.hasActivePlayerView}, isShortsTab=${state.isShortsOrReelsTabActive} -> shouldBlock=$shouldBlock")
+                    if (packageName.contains("facebook")) {
+                        Log.d("FbDiag", "Screen analysis for $packageName: isSafeTab=${state.isSafeTabActive}, hasActivePlayer=${state.hasActivePlayerView}, isShortsTab=${state.isShortsOrReelsTabActive} -> shouldBlock=$shouldBlock")
                     }
                     
                     if (shouldBlock) {
-                        Log.d(TAG, "Surgical block triggered for $originalPackageName!")
+                        Log.d(TAG, "Surgical block triggered for $packageName!")
                         
                         var success = false
-                        if (originalPackageName.contains("facebook")) {
+                        if (packageName.contains("facebook")) {
                             success = findAndClickHomeTab(rootNode)
                         }
                         
@@ -377,11 +361,11 @@ class ScreenMonitorService : AccessibilityService() {
                 }
                 
                 // YouTube Home screen checks to prevent false back trigger from shorts previews
-                val isYtFeedIndicator = text.contains("suggested shorts") ||
+                val isYtFeedIndicator = (text.contains("suggested shorts") ||
                                         text.contains("shorts shelf") ||
                                         text.contains("trending shorts") ||
                                         lowerViewId.contains("feed_filter") ||
-                                        lowerViewId.contains("youtube_logo")
+                                        lowerViewId.contains("youtube_logo")) && node.isVisibleToUser
                 if (isYtFeedIndicator) {
                     state.isSafeTabActive = true
                 }
@@ -425,12 +409,15 @@ class ScreenMonitorService : AccessibilityService() {
                 }
                 
                 // Instagram Home/Explore screen checks to prevent false back trigger from posts
-                val isIgFeedIndicator = text.contains("suggested posts") ||
+                val isIgFeedIndicator = (text.contains("suggested posts") ||
                                         text.contains("suggested reels") ||
                                         text.contains("search and explore") ||
                                         text.contains("explore feed") ||
                                         lowerViewId.contains("feed_root") ||
-                                        lowerViewId.contains("main_feed")
+                                        lowerViewId.contains("row_feed") ||
+                                        lowerViewId.contains("action_bar") ||
+                                        lowerViewId.contains("comment") ||
+                                        lowerViewId.contains("main_feed")) && node.isVisibleToUser
                 if (isIgFeedIndicator) {
                     state.isSafeTabActive = true
                 }
@@ -445,11 +432,13 @@ class ScreenMonitorService : AccessibilityService() {
                                        lowerViewId.contains("carousel") || 
                                        lowerViewId.contains("thumbnail") || 
                                        lowerViewId.contains("feed") ||
+                                       lowerViewId.contains("row_feed") ||
                                        lowerViewId.contains("preview") ||
                                        lowerViewId.contains("card") ||
                                        lowerViewId.contains("row") ||
                                        lowerViewId.contains("tab") ||
                                        lowerViewId.contains("button") ||
+                                       lowerViewId.contains("comment") ||
                                        lowerViewId.contains("avatar")
                     if (!isFeedOrGrid) {
                         state.hasActivePlayerView = true
@@ -466,6 +455,9 @@ class ScreenMonitorService : AccessibilityService() {
                                            lowerViewId.contains("button") || 
                                            lowerViewId.contains("thumbnail") ||
                                            lowerViewId.contains("grid") ||
+                                           lowerViewId.contains("row_feed") ||
+                                           lowerViewId.contains("feed") ||
+                                           lowerViewId.contains("comment") ||
                                            lowerViewId.contains("carousel") ||
                                            lowerViewId.contains("avatar")
                     if (!isFeedOrExclusion) {
@@ -570,14 +562,15 @@ class ScreenMonitorService : AccessibilityService() {
                                         contentDesc.contains("audio used in this") ||
                                         text.contains("double-tap") || 
                                         contentDesc.contains("double-tap") ||
-                                        text.contains("remix") || 
-                                        contentDesc.contains("remix") ||
+                                        text == "remix" || contentDesc == "remix" ||
                                         text.contains("comment on this") || 
                                         contentDesc.contains("comment on this") ||
                                         text == "reels" || contentDesc == "reels" ||
                                         text == "reel" || contentDesc == "reel" ||
                                         contentDesc.contains("play current reel") ||
-                                        contentDesc.contains("play reel")
+                                        contentDesc.contains("play reel") ||
+                                        text.contains("swipe up for next") ||
+                                        contentDesc.contains("swipe up for next")
                 
                 if (isReelsTextOrDesc) {
                     // Double check we are not in feed previews, lists, tabs, or buttons on safe screens.
@@ -596,6 +589,13 @@ class ScreenMonitorService : AccessibilityService() {
                                       
                     if (!isExclusion) {
                         state.hasActivePlayerView = true
+                    }
+                }
+                
+                // Special FB Lite fallback: "Reels" page title
+                if (packageName == "com.facebook.lite" && (text == "reels" || text == "video")) {
+                    if (node.className?.toString()?.contains("TextView") == true && !node.isClickable) {
+                        state.isShortsOrReelsTabActive = true
                     }
                 }
             }
@@ -630,6 +630,56 @@ class ScreenMonitorService : AccessibilityService() {
                 child.recycle()
             }
         }
+    }
+
+    private fun isUrlBarNode(node: AccessibilityNodeInfo): Boolean {
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
+        
+        val urlPatterns = listOf("http://", "https://", "www.")
+        val isUrlPattern = urlPatterns.any { text.startsWith(it) || contentDesc.startsWith(it) }
+        
+        val targetDomains = listOf("youtube.com", "instagram.com", "facebook.com", "twitter.com", "x.com", "m.youtube.com", "m.facebook.com")
+        val isTargetDomain = targetDomains.any { 
+            text == it || text.startsWith("$it/") || text.startsWith("www.$it") ||
+            contentDesc == it || contentDesc.startsWith("$it/") || contentDesc.startsWith("www.$it")
+        }
+        
+        if (isUrlPattern || isTargetDomain) {
+            val className = node.className?.toString() ?: ""
+            if (className.endsWith("TextView") || className.endsWith("EditText") || className.contains("android.widget.TextView") || className.contains("android.widget.EditText") || node.isEditable) {
+                return true
+            }
+        }
+        
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        if (viewId.isNotEmpty()) {
+            val knownUrlBarSuffixes = listOf(
+                "url_bar", "urlbar", "location_bar", "location_bar_edit_text",
+                "url_bar_text", "url_field", "omnibar", "search_box_text",
+                "mozac_browser_toolbar_url_view", "urlbar_title", "url_view", "url_input"
+            )
+            
+            val matchesId = knownUrlBarSuffixes.any { viewId.endsWith(it) || viewId.contains(it) }
+            if (matchesId) {
+                val isFalsePositive = viewId.contains("suggest") || 
+                                     viewId.contains("button") || 
+                                     viewId.contains("icon") || 
+                                     viewId.contains("option") ||
+                                     viewId.contains("clear") ||
+                                     viewId.contains("history") ||
+                                     viewId.contains("bookmark") ||
+                                     viewId.contains("carousel") ||
+                                     viewId.contains("grid") ||
+                                     viewId.contains("list") ||
+                                     viewId.contains("tab")
+                if (!isFalsePositive) {
+                    return true
+                }
+            }
+        }
+        
+        return false
     }
 
     private fun isYouTubeUrl(text: String, desc: String): Boolean {
@@ -670,7 +720,7 @@ class ScreenMonitorService : AccessibilityService() {
         return subPaths.any { text.contains(it) || desc.contains(it) }
     }
 
-    private fun checkAndBlockBrowser(rootNode: AccessibilityNodeInfo): Boolean {
+    private fun checkAndBlockBrowser(rootNode: AccessibilityNodeInfo, browserPackage: String): Boolean {
         var foundYoutube = false
         var foundInstagram = false
         var foundTwitter = false
@@ -681,11 +731,18 @@ class ScreenMonitorService : AccessibilityService() {
         var foundExploreTw = false
         var foundExploreIg = false
         var foundWatch = false
+        
+        var urlText = ""
 
         fun scanNodes(node: AccessibilityNodeInfo?) {
             if (node == null) return
             val text = node.text?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            
+            if (isUrlBarNode(node)) {
+                val combined = "$text $desc"
+                if (combined.isNotEmpty()) urlText = combined
+            }
             
             if (text.isNotEmpty() || desc.isNotEmpty()) {
                 if (isYouTubeUrl(text, desc)) { foundYoutube = true; Log.d("WebDiag", "Found YT: text='$text', desc='$desc'") }
@@ -709,7 +766,57 @@ class ScreenMonitorService : AccessibilityService() {
         
         scanNodes(rootNode)
 
-        Log.d("WebDiag", "Web state: yt=$foundYoutube(shorts=$foundShorts), ig=$foundInstagram(reels=$foundReels), fb=$foundFacebook(reels=$foundReels, watch=$foundWatch)")
+        val isReliableUrlBrowser = browserPackage == "com.android.chrome" || browserPackage == "org.chromium.chrome"
+        
+        // If it's a reliable browser we MUST override the document-wide search to prevent false positives (like "shorts" text on normal youtube page, or homescreen shortcut text).
+        if (isReliableUrlBrowser) {
+            foundYoutube = false
+            foundInstagram = false
+            foundTwitter = false
+            foundFacebook = false
+            foundShorts = false
+            foundReels = false
+            foundExploreTw = false
+            foundExploreIg = false
+            foundWatch = false
+            
+            if (urlText.isNotEmpty()) {
+                foundYoutube = isYouTubeUrl(urlText, "")
+                foundInstagram = isInstagramUrl(urlText, "")
+                foundTwitter = isTwitterUrl(urlText, "")
+                foundFacebook = isFacebookUrl(urlText, "")
+                
+                foundShorts = urlText.contains("shorts")
+                foundReels = urlText.contains("reels") || urlText.contains("clips")
+                foundExploreTw = urlText.contains("explore") || urlText.contains("trends")
+                foundExploreIg = urlText.contains("explore")
+                foundWatch = urlText.contains("watch")
+            }
+        }
+
+        Log.d("WebDiag", "Web state: pkg=$browserPackage(reliable=$isReliableUrlBrowser), url='$urlText', yt=$foundYoutube(shorts=$foundShorts), ig=$foundInstagram(reels=$foundReels), fb=$foundFacebook(reels=$foundReels, watch=$foundWatch)")
+
+        if (foundYoutube || foundInstagram || foundFacebook || foundTwitter) {
+            fun printTree(node: AccessibilityNodeInfo?, indent: String) {
+                if (node == null) return
+                val text = node.text?.toString() ?: ""
+                val desc = node.contentDescription?.toString() ?: ""
+                val id = node.viewIdResourceName ?: ""
+                val className = node.className?.toString() ?: ""
+                if (text.isNotEmpty() || desc.isNotEmpty() || id.isNotEmpty()) {
+                    Log.d("WebTree", "$indent [$className] id='$id' text='$text' desc='$desc'")
+                }
+                for (i in 0 until node.childCount) {
+                    printTree(node.getChild(i), "$indent  ")
+                }
+            }
+            val now = System.currentTimeMillis()
+            if (now - (appConfigs["last_dump_time"]?.timeUsedTodaySeconds ?: 0L) > 5000L) {
+                Log.d("WebTree", "--- DUMPING TREE ---")
+                printTree(rootNode, "")
+                appConfigs["last_dump_time"] = com.example.data.AppBlockConfig(packageName = "last_dump_time", appName = "dump", timeUsedTodaySeconds = now)
+            }
+        }
 
         val ytConfig = appConfigs["com.google.android.youtube"]
         val igConfig = appConfigs["com.instagram.android"]
@@ -722,8 +829,8 @@ class ScreenMonitorService : AccessibilityService() {
                 triggerWebCounterpartBlock("YouTube", "youtube.com")
                 return true
             }
-            if (ytConfig.blockShortsReels && foundYoutube && foundShorts) {
-                triggerSurgicalWebBlock("YouTube Shorts")
+            if (ytConfig.blockShortsReels && foundYoutube && (foundShorts || !isReliableUrlBrowser)) {
+                triggerSurgicalWebBlock("YouTube (Strict Domain Block)")
                 return true
             }
         }
@@ -734,8 +841,8 @@ class ScreenMonitorService : AccessibilityService() {
                 triggerWebCounterpartBlock("Instagram", "instagram.com")
                 return true
             }
-            if (igConfig.blockShortsReels && foundInstagram && (foundReels || foundExploreIg)) {
-                triggerSurgicalWebBlock("Instagram Reels/Explore")
+            if (igConfig.blockShortsReels && foundInstagram && (foundReels || foundExploreIg || !isReliableUrlBrowser)) {
+                triggerSurgicalWebBlock("Instagram (Strict Domain Block)")
                 return true
             }
         }
@@ -746,8 +853,8 @@ class ScreenMonitorService : AccessibilityService() {
                 triggerWebCounterpartBlock("X (Twitter)", "x.com")
                 return true
             }
-            if (twConfig.blockShortsReels && foundTwitter && foundExploreTw) {
-                triggerSurgicalWebBlock("Twitter Explore")
+            if (twConfig.blockShortsReels && foundTwitter && (foundExploreTw || !isReliableUrlBrowser)) {
+                triggerSurgicalWebBlock("Twitter (Strict Domain Block)")
                 return true
             }
         }
@@ -758,8 +865,8 @@ class ScreenMonitorService : AccessibilityService() {
                 triggerWebCounterpartBlock("Facebook", "facebook.com")
                 return true
             }
-            if (fbConfig.blockShortsReels && foundFacebook && (foundReels || foundWatch)) {
-                triggerSurgicalWebBlock("Facebook Reels")
+            if (fbConfig.blockShortsReels && foundFacebook && (foundReels || foundWatch || !isReliableUrlBrowser)) {
+                triggerSurgicalWebBlock("Facebook (Strict Domain Block)")
                 return true
             }
         }

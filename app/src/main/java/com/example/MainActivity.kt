@@ -713,8 +713,8 @@ fun RuleCard(viewModel: BlockViewModel, config: AppBlockConfig, isLocked: Boolea
                 Slider(
                     value = config.dailyLimitMinutes.toFloat(),
                     onValueChange = { viewModel.updateDailyLimit(config, it.toInt()) },
-                    valueRange = 0f..180f,
-                    steps = 35, // 0 to 180 in steps of 5
+                    valueRange = 0f..1440f,
+                    steps = 143, // 0 to 1440 in steps of 10
                     enabled = !isLocked,
                     colors = SliderDefaults.colors(
                         thumbColor = ElectricTeal,
@@ -999,30 +999,36 @@ fun LockScreen(viewModel: BlockViewModel, securitySettings: SecuritySettings?) {
                             Pair("1 Day", 1),
                             Pair("3 Days", 3),
                             Pair("1 Week", 7),
-                            Pair("1 Month", 30)
+                            Pair("1 Month", 30),
+                            Pair("2 Months", 60),
+                            Pair("3 Months", 90)
                         )
                         
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            durations.forEach { (label, days) ->
-                                val selected = durationDaysSelection == days
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (selected) ElectricTeal else SlateGrayLight)
-                                        .clickable { durationDaysSelection = days }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            durations.chunked(3).forEach { rowItems ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = label,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = if (selected) CarbonBlack else ThemePrimaryText
-                                    )
+                                    rowItems.forEach { (label, days) ->
+                                        val selected = durationDaysSelection == days
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (selected) ElectricTeal else SlateGrayLight)
+                                                .clickable { durationDaysSelection = days }
+                                                .padding(vertical = 10.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = if (selected) CarbonBlack else ThemePrimaryText
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

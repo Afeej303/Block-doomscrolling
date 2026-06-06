@@ -5,10 +5,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BlockDao {
-    @Query("SELECT * FROM app_block_config")
+    @Query("SELECT * FROM app_block_config ORDER BY packageName ASC")
     fun getAllConfigsFlow(): Flow<List<AppBlockConfig>>
 
-    @Query("SELECT * FROM app_block_config")
+    @Query("SELECT * FROM app_block_config ORDER BY packageName ASC")
     suspend fun getAllConfigs(): List<AppBlockConfig>
 
     @Query("SELECT * FROM app_block_config WHERE packageName = :packageName")
