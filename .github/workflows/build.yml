@@ -3,7 +3,7 @@ name: Cloud Build APK
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Allows you to manually click a button to build
+  workflow_dispatch: 
 
 jobs:
   build:
@@ -19,21 +19,22 @@ jobs:
         java-version: '17'
         cache: 'gradle'
 
-    # This tricks the AI Studio template so it doesn't fail the build
+    # Tricks the template so it doesn't fail over missing keys
     - name: Bypass Template Key Checks
       run: |
         echo "GEMINI_API_KEY=not_needed" > .env
         echo "apiKey=not_needed" > local.properties
 
-    # Clears any custom signing configs that might throw an error
+    # Clears out custom signing configs that require local keystores
     - name: Strip Custom Signing If Present
       run: |
         sed -i '/signingConfig = signingConfigs/d' app/build.gradle.kts || true
-        sed -i '/signingConfig signingConfigs/d' app/build.gradle || true
 
-    - name: Grant Execute Permission to Gradle    run: chmod +x gradlew
+     Tar- name: Grant Execute Permission to Gradle
+      run: chmod +x gradlew
 
-    - name: Build Debug APK    run: ./gradlew assembleDebug
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug
 
     - name: Upload Finished APK
       uses: actions/upload-artifact@v4
