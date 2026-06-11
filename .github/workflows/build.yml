@@ -30,7 +30,7 @@ jobs:
       run: |
         sed -i '/signingConfig = signingConfigs/d' app/build.gradle.kts || true
 
-     Tar- name: Grant Execute Permission to Gradle
+    - name: Grant Execute Permission to Gradle
       run: chmod +x gradlew
 
     - name: Build Debug APK
