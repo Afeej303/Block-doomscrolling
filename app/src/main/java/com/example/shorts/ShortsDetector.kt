@@ -12,8 +12,91 @@ data class DetectionResult(
     val blockLabel: String = ""
 )
 
+enum class RulePriority { PRIMARY, SECONDARY, FALLBACK }
+
+data class DetectionRule(
+    val name: String,
+    val priority: RulePriority,
+    val score: Int,
+    val matchCondition: (AppScreenState) -> Boolean
+)
+
+class AppScreenState {
+    val viewIds = mutableSetOf<String>()
+    val texts = mutableSetOf<String>()
+    val contentDescs = mutableSetOf<String>()
+    val classNames = mutableSetOf<String>()
+    
+    val selectedTabs = mutableSetOf<String>()
+    
+    var packageName = ""
+    var className = ""
+    var isReliableBrowser = false
+}
+
 class ShortsDetector {
     
+    private val rules = listOf(
+        // YouTube Rules
+        DetectionRule("YouTube Selected Shorts Tab", RulePriority.PRIMARY, 60) { state ->
+            state.packageName.contains("youtube") && 
+            state.selectedTabs.any { it.contains("shorts") || it.contains("reels") }
+        },
+        DetectionRule("YouTube Player View ID (reel_recycler/reel_viewer)", RulePriority.PRIMARY, 80) { state ->
+            state.packageName.contains("youtube") &&
+            state.viewIds.any { it.contains("reel_recycler") || it.contains("reel_viewer") }
+        },
+        DetectionRule("YouTube Web URL Match", RulePriority.PRIMARY, 100) { state ->
+            state.isReliableBrowser && state.viewIds.any { it.contains("url_bar") } &&
+            state.texts.any { it.contains("youtube.com/shorts") }
+        },
+        DetectionRule("YouTube Shorts Activity", RulePriority.FALLBACK, 30) { state ->
+            state.packageName.contains("youtube") && state.className.contains("shorts")
+        },
+        
+        // Instagram Rules
+        DetectionRule("Instagram Selected Reels Tab", RulePriority.PRIMARY, 60) { state ->
+            state.packageName.contains("instagram") && 
+            state.selectedTabs.any { it.contains("reels") || it.contains("clips") }
+        },
+        DetectionRule("Instagram Player View ID (clips_viewer/reel_viewer)", RulePriority.PRIMARY, 80) { state ->
+            state.packageName.contains("instagram") &&
+            state.viewIds.any { it.contains("clips_viewer") || it.contains("clips_video_container") || it.contains("reel_viewer") }
+        },
+        DetectionRule("Instagram Web URL Match", RulePriority.PRIMARY, 100) { state ->
+            state.isReliableBrowser && state.viewIds.any { it.contains("url_bar") } &&
+            state.texts.any { it.contains("instagram.com/reels") }
+        },
+        DetectionRule("Instagram Reel Player Class", RulePriority.SECONDARY, 40) { state ->
+            state.packageName.contains("instagram") && state.classNames.any { it.contains("reel") } && state.viewIds.any { it.contains("player") }
+        },
+
+        // Facebook Rules
+        DetectionRule("Facebook Selected Reels Tab", RulePriority.PRIMARY, 60) { state ->
+            state.packageName.contains("facebook") && 
+            state.selectedTabs.any { it.contains("reels") }
+        },
+        DetectionRule("Facebook Reels View ID", RulePriority.PRIMARY, 80) { state ->
+            state.packageName.contains("facebook") &&
+            state.viewIds.any { it.contains("reel") || it.contains("clips") }
+        },
+        
+        // TikTok Rules
+        DetectionRule("TikTok Main App", RulePriority.PRIMARY, 100) { state ->
+            state.packageName.contains("zhiliaoapp") || state.packageName.contains("trill")
+        },
+
+        // Snapchat Spotlight Rules
+        DetectionRule("Snapchat Spotlight Tab", RulePriority.PRIMARY, 60) { state ->
+            state.packageName.contains("snapchat") &&
+            state.selectedTabs.any { it.contains("spotlight") }
+        },
+        DetectionRule("Snapchat Spotlight View", RulePriority.PRIMARY, 80) { state ->
+            state.packageName.contains("snapchat") &&
+            state.viewIds.any { it.contains("spotlight") }
+        }
+    )
+
     fun detect(
         rootNode: AccessibilityNodeInfo, 
         packageName: String, 
@@ -22,15 +105,39 @@ class ShortsDetector {
         isReliableBrowser: Boolean
     ): DetectionResult {
         
-        val viewIds = mutableSetOf<String>()
-        val texts = mutableSetOf<String>()
-        val contentDescs = mutableSetOf<String>()
+        if (config == null || !config.blockShortsReels) {
+            return DetectionResult(false)
+        }
+
+        val state = AppScreenState().apply {
+            this.packageName = packageName.lowercase()
+            this.className = className.lowercase()
+            this.isReliableBrowser = isReliableBrowser
+        }
         
         fun collect(node: AccessibilityNodeInfo?) {
             if (node == null) return
-            node.viewIdResourceName?.let { viewIds.add(it.substringAfterLast('/')) }
-            node.text?.toString()?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
-            node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { contentDescs.add(it) }
+            
+            val viewId = node.viewIdResourceName ?: ""
+            val contentDesc = node.contentDescription?.toString() ?: ""
+            val text = node.text?.toString() ?: ""
+            val nodeClass = node.className?.toString() ?: ""
+            
+            val viewIdLow = viewId.substringAfterLast('/').lowercase()
+            val contentDescLow = contentDesc.lowercase()
+            val textLow = text.lowercase()
+            val classLow = nodeClass.lowercase()
+            
+            if (viewIdLow.isNotBlank()) state.viewIds.add(viewIdLow)
+            if (textLow.isNotBlank()) state.texts.add(textLow)
+            if (contentDescLow.isNotBlank()) state.contentDescs.add(contentDescLow)
+            if (classLow.isNotBlank()) state.classNames.add(classLow)
+
+            if (node.isSelected) {
+                if (contentDescLow.isNotBlank()) state.selectedTabs.add(contentDescLow)
+                if (textLow.isNotBlank()) state.selectedTabs.add(textLow)
+            }
+
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i)
                 collect(child)
@@ -40,81 +147,56 @@ class ShortsDetector {
         
         collect(rootNode)
         
+        var totalConfidence = 0
+        val matchedRuleNames = mutableListOf<String>()
+        var isWeb = false
+        var webDomain = ""
+        var labelStr = ""
+        
+        for (rule in rules) {
+            if (rule.matchCondition(state)) {
+                totalConfidence += rule.score
+                matchedRuleNames.add("${rule.name} (+${rule.score})")
+                
+                if (rule.name.contains("Web URL Match")) {
+                    isWeb = true
+                    webDomain = state.texts.firstOrNull { it.contains("youtube.com/shorts") || it.contains("instagram.com/reels") } ?: ""
+                }
+            }
+        }
+        
+        val shouldBlock = totalConfidence >= 100
+        
+        if (shouldBlock) {
+            labelStr = when {
+                state.packageName.contains("youtube") || webDomain.contains("youtube") -> "YouTube Shorts"
+                state.packageName.contains("instagram") || webDomain.contains("instagram") -> "Instagram Reels"
+                state.packageName.contains("facebook") -> "Facebook Reels"
+                state.packageName.contains("zhiliaoapp") || state.packageName.contains("trill") -> "TikTok"
+                state.packageName.contains("snapchat") -> "Snapchat Spotlight"
+                else -> "Short-form Video"
+            }
+        }
+
         if (DebugManager.state.value.isEnabled) {
-            Log.d("AccessibilityInstrument", "Pkg: $packageName, Class: $className")
-            Log.d("AccessibilityInstrument", "ViewIDs: ${viewIds.joinToString(", ")}")
-            Log.d("AccessibilityInstrument", "Texts: ${texts.joinToString(", ")}")
-            Log.d("AccessibilityInstrument", "ContentDescs: ${contentDescs.joinToString(", ")}")
-            
+            val debugMatchedRule = if (matchedRuleNames.isNotEmpty()) {
+                matchedRuleNames.joinToString("\n✓ ")
+                    .let { "✓ $it\n\nConfidence Score: $totalConfidence" }
+            } else {
+                "No matches"
+            }
+
             DebugManager.updateInfo(
                 currentPackage = packageName,
                 currentActivity = className,
-                viewIds = viewIds.joinToString(", "),
-                texts = texts.joinToString(", "),
-                contentDescriptions = contentDescs.joinToString(", ")
-            )
-        }
-
-        if (config == null || !config.blockShortsReels) {
-            return DetectionResult(false)
-        }
-
-        var shouldBlock = false
-        var webCounterpart = false
-        var domainStr = ""
-        var labelStr = ""
-        var matchedRule = ""
-
-        val viewIdsStr = viewIds.joinToString(" ").lowercase()
-        val textsStr = texts.joinToString(" ").lowercase()
-        val descsStr = contentDescs.joinToString(" ").lowercase()
-        val classLow = className.lowercase()
-
-        when {
-            packageName.contains("youtube") -> {
-                if (classLow.contains("shorts") || 
-                    viewIdsStr.contains("shorts") || 
-                    viewIdsStr.contains("reel") ||
-                    textsStr.contains("shorts") || 
-                    descsStr.contains("shorts")) {
-                    
-                    shouldBlock = true
-                    labelStr = "YouTube Shorts"
-                    matchedRule = "YouTube Shorts Match"
-                }
-            }
-            packageName.contains("instagram") -> {
-                if (classLow.contains("reel") || 
-                    classLow.contains("clips") ||
-                    viewIdsStr.contains("clips") ||
-                    viewIdsStr.contains("reel") ||
-                    textsStr.contains("reels") ||
-                    descsStr.contains("reels")) {
-                    
-                    shouldBlock = true
-                    labelStr = "Instagram Reels"
-                    matchedRule = "Instagram Reels Match"
-                }
-            }
-            packageName.contains("facebook") -> {
-                if (viewIdsStr.contains("reel") ||
-                    textsStr.contains("reels") ||
-                    descsStr.contains("reels")) {
-                    
-                    shouldBlock = true
-                    labelStr = "Facebook Reels"
-                    matchedRule = "Facebook Reels Match"
-                }
-            }
-        }
-        
-        if (shouldBlock && DebugManager.state.value.isEnabled) {
-            DebugManager.updateInfo(
-                matchedRule = matchedRule,
-                actionTaken = "BACK"
+                viewIds = state.viewIds.joinToString(", "),
+                texts = state.texts.joinToString(", "),
+                contentDescriptions = state.contentDescs.joinToString(", "),
+                matchedRule = debugMatchedRule,
+                actionTaken = if (shouldBlock) "BACK" else "None"
             )
         }
         
-        return DetectionResult(shouldBlock, webCounterpart, domainStr, labelStr)
+        return DetectionResult(shouldBlock, isWeb, webDomain, labelStr)
     }
 }
