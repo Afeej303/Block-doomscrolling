@@ -164,6 +164,19 @@ fun MainScreen(viewModel: BlockViewModel) {
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = { viewModel.selectedTab.value = 2 },
+                        icon = { Icon(Icons.Default.Timer, contentDescription = "Focus Mode") },
+                        label = { Text("Focus Mode") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricTeal,
+                            selectedTextColor = ElectricTeal,
+                            unselectedIconColor = TextGray,
+                            unselectedTextColor = TextGray,
+                            indicatorColor = AccentPill
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 3,
+                        onClick = { viewModel.selectedTab.value = 3 },
                         icon = { 
                             Icon(
                                 if (viewModel.isConfigurationLocked()) Icons.Default.Lock else Icons.Default.LockOpen,
@@ -206,7 +219,8 @@ fun MainScreen(viewModel: BlockViewModel) {
                             viewModel = viewModel,
                             appConfigs = appConfigs
                         )
-                        2 -> LockScreen(
+                        2 -> com.example.ui.FocusScreen()
+                        3 -> LockScreen(
                             viewModel = viewModel,
                             securitySettings = securitySettings
                         )

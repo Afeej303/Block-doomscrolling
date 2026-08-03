@@ -12,6 +12,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
         <activity
+            android:name=".overlay.FocusLockActivity"
+            android:exported="true"
+            android:label="Focus Lock"
+            android:theme="@style/Theme.MyApplication" />
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
