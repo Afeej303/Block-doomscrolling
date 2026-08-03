@@ -7,12 +7,9 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.MainActivity
-import com.example.accessibility.AccessibilityEventListener
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import com.example.overlay.FocusLockActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 
 sealed class FocusState {
     object Inactive : FocusState()
@@ -21,31 +18,77 @@ sealed class FocusState {
     object Finishing : FocusState()
 }
 
-class FocusManager(private val context: Context) : AccessibilityEventListener {
-    
+object FocusManager {
     private val _state = MutableStateFlow<FocusState>(FocusState.Inactive)
     val state: StateFlow<FocusState> = _state
     
     private var isSettingsLockedCached = false
     private var lastAppInfoBlockTime = 0L
+
+    private val allowedPackages = setOf(
+        "com.android.systemui",
+        "com.google.android.permissioncontroller",
+        "com.google.android.dialer",
+        "com.android.server.telecom",
+        "com.android.phone",
+        "com.android.settings"
+    )
     
-    // In a real implementation, we'd depend on SettingsRepository
+    fun start(context: Context) {
+        _state.value = FocusState.Running(0)
+        launchFocusLockActivity(context)
+    }
+    
+    fun stop() {
+        _state.value = FocusState.Inactive
+    }
+
     fun updateSettingsLock(isLocked: Boolean) {
         isSettingsLockedCached = isLocked
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?, packageName: String) {
-        if (rootNode == null) return
+    fun onAccessibilityEvent(context: Context, event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?, packageName: String) {
+        // Enforce focus mode
+        if (_state.value is FocusState.Running) {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                enforceFocus(context, packageName, event.className?.toString())
+            }
+        }
         
-        // This is where we intercept app launches during an active Focus Session
-        // For now, we migrate the "App Info / Device Admin block" logic here.
-        scanAndBlockAppInfo(rootNode)
+        if (rootNode != null) {
+            scanAndBlockAppInfo(context, rootNode)
+        }
     }
 
-    override fun onInterrupt() {
+    private fun enforceFocus(context: Context, packageName: String, className: String?) {
+        // Allow our own app, but ensure they don't navigate away from LockActivity
+        if (packageName == context.packageName) {
+            if (className != null && className.contains("FocusLockActivity")) {
+                return // We are where we should be
+            }
+            // Block them from going to MainActivity or other parts of the app
+            launchFocusLockActivity(context)
+            return
+        }
+        
+        // Allow system screens
+        if (allowedPackages.contains(packageName)) {
+            return
+        }
+        
+        // For any other app, block it!
+        Log.d("FocusManager", "Blocking app $packageName during focus session. Target class: $className")
+        launchFocusLockActivity(context)
     }
 
-    private fun scanAndBlockAppInfo(rootNode: AccessibilityNodeInfo) {
+    private fun launchFocusLockActivity(context: Context) {
+        val intent = Intent(context, FocusLockActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        context.startActivity(intent)
+    }
+    
+    private fun scanAndBlockAppInfo(context: Context, rootNode: AccessibilityNodeInfo) {
         if (!isSettingsLockedCached) return
         val now = System.currentTimeMillis()
         if (now - lastAppInfoBlockTime < 2000) return

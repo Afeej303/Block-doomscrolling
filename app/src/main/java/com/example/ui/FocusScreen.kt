@@ -1,9 +1,10 @@
 package com.example.ui
 
-import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -11,13 +12,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.overlay.FocusLockActivity
+import com.example.focus.FocusManager
+import com.example.focus.FocusState
 import com.example.ui.theme.ElectricTeal
 import com.example.ui.theme.SlateGrayLight
 
 @Composable
 fun FocusScreen() {
     val context = LocalContext.current
+    val focusState by FocusManager.state.collectAsState()
     
     Column(
         modifier = Modifier
@@ -39,15 +42,21 @@ fun FocusScreen() {
             fontSize = 14.sp
         )
         Spacer(modifier = Modifier.height(32.dp))
-        Button(
-            onClick = {
-                val intent = Intent(context, FocusLockActivity::class.java)
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                context.startActivity(intent)
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal)
-        ) {
-            Text("Start Focus Session", color = Color.Black, fontWeight = FontWeight.Bold)
+        
+        if (focusState is FocusState.Running) {
+            Button(
+                onClick = { FocusManager.stop() },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+            ) {
+                Text("Stop Focus Session", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            Button(
+                onClick = { FocusManager.start(context) },
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal)
+            ) {
+                Text("Start Focus Session", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

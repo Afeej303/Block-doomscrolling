@@ -13,6 +13,7 @@
         android:theme="@style/Theme.MyApplication">
         <activity
             android:name=".overlay.FocusLockActivity"
+            android:launchMode="singleInstance"
             android:exported="true"
             android:label="Focus Lock"
             android:theme="@style/Theme.MyApplication" />
