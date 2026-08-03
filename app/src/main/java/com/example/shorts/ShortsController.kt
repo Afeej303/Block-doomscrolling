@@ -39,7 +39,8 @@ class ShortsController(
         val isBrowser = packageName == "com.android.chrome" || packageName == "org.mozilla.firefox" || packageName.contains("browser")
         val isReliableBrowser = isBrowser // simplify for now
 
-        val result = detector.detect(rootNode, packageName, config, isReliableBrowser)
+        val className = event.className?.toString() ?: ""
+        val result = detector.detect(rootNode, packageName, className, config, isReliableBrowser)
 
         if (result.shouldBlock) {
             if (result.isWebCounterpart) {

@@ -20,6 +20,7 @@ class ScreenMonitorService : AccessibilityService() {
     private lateinit var focusListener: FocusAccessibilityListener
     private lateinit var shortsController: ShortsController
     private lateinit var repository: BlockRepository
+    private var debugOverlay: com.example.debug.DebugOverlay? = null
     
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
 
@@ -34,6 +35,7 @@ class ScreenMonitorService : AccessibilityService() {
         
         dispatcher.registerListener(focusListener)
         dispatcher.registerListener(shortsController)
+        debugOverlay = com.example.debug.DebugOverlay(this)
         
         // Listen to security settings for FocusManager
         serviceScope.launch {

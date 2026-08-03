@@ -1,0 +1,29 @@
+--- app/src/main/java/com/example/MainActivity.kt
++++ app/src/main/java/com/example/MainActivity.kt
+@@ -193,6 +193,17 @@
+                             indicatorColor = AccentPill
+                         )
+                     )
++                    NavigationBarItem(
++                        selected = selectedTab == 4,
++                        onClick = { viewModel.selectedTab.value = 4 },
++                        icon = { Icon(androidx.compose.material.icons.Icons.Default.Build, contentDescription = "Developer") },
++                        label = { Text("Developer") },
++                        colors = NavigationBarItemDefaults.colors(
++                            selectedIconColor = ElectricTeal,
++                            selectedTextColor = ElectricTeal,
++                            unselectedIconColor = TextGray,
++                            unselectedTextColor = TextGray,
++                            indicatorColor = AccentPill
++                        )
++                    )
+                 }
+             },
+             modifier = Modifier.fillMaxSize()
+@@ -218,6 +229,7 @@
+                             viewModel = viewModel,
+                             securitySettings = securitySettings
+                         )
++                        4 -> com.example.ui.DeveloperScreen()
+                     }
+                 }

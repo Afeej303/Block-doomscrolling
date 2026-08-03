@@ -192,6 +192,19 @@ fun MainScreen(viewModel: BlockViewModel) {
                             indicatorColor = AccentPill
                         )
                     )
+                    NavigationBarItem(
+                        selected = selectedTab == 4,
+                        onClick = { viewModel.selectedTab.value = 4 },
+                        icon = { Icon(androidx.compose.material.icons.Icons.Default.Build, contentDescription = "Developer") },
+                        label = { Text("Developer") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricTeal,
+                            selectedTextColor = ElectricTeal,
+                            unselectedIconColor = TextGray,
+                            unselectedTextColor = TextGray,
+                            indicatorColor = AccentPill
+                        )
+                    )
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -224,6 +237,7 @@ fun MainScreen(viewModel: BlockViewModel) {
                             viewModel = viewModel,
                             securitySettings = securitySettings
                         )
+                        4 -> com.example.ui.DeveloperScreen()
                     }
                 }
 
