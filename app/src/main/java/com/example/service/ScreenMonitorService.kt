@@ -22,6 +22,8 @@ class ScreenMonitorService : AccessibilityService() {
     private lateinit var repository: BlockRepository
     private var debugOverlay: com.example.debug.DebugOverlay? = null
     
+    private var lastContentEventTime = 0L
+    
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
 
     override fun onServiceConnected() {
@@ -70,15 +72,28 @@ class ScreenMonitorService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
-            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+        val eventType = event.eventType
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+            eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             
-            val rootNode = rootInActiveWindow
-            val packageName = event.packageName?.toString() ?: rootNode?.packageName?.toString() ?: return
+            val now = System.currentTimeMillis()
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                if (now - lastContentEventTime < 1000L) {
+                    return
+                }
+                lastContentEventTime = now
+            }
+
+            val rootNode = rootInActiveWindow ?: return
+            val packageName = event.packageName?.toString() ?: rootNode.packageName?.toString() ?: run {
+                rootNode.recycle()
+                return
+            }
             
             dispatcher.dispatchEvent(event, rootNode, packageName)
             
-            rootNode?.recycle()
+            rootNode.recycle()
         }
     }
 
