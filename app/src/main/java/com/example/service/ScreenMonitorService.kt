@@ -37,6 +37,10 @@ class ScreenMonitorService : AccessibilityService() {
         dispatcher.registerListener(shortsController)
         debugOverlay = com.example.debug.DebugOverlay(this)
         
+        UsageTracker.initialize(this, repository) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+        
         // Listen to security settings for FocusManager
         serviceScope.launch {
             repository.securitySettings.collect { settings ->
@@ -44,12 +48,30 @@ class ScreenMonitorService : AccessibilityService() {
                 FocusManager.updateSettingsLock(isLocked)
             }
         }
+
+        // Listen to focus settings and handle schedule
+        serviceScope.launch {
+            repository.focusSettings.collect { settings ->
+                if (settings != null) {
+                    val allowed = settings.allowedApps.split(",").filter { it.isNotBlank() }
+                    FocusManager.updateAllowedApps(allowed)
+                    FocusManager.updateSchedules(settings.isScheduleEnabled, settings.getScheduleList())
+                }
+            }
+        }
+
+        // Ticker for schedule check
+        serviceScope.launch {
+            while (true) {
+                FocusManager.checkSchedule(this@ScreenMonitorService)
+                kotlinx.coroutines.delay(10000) // Check every 10 seconds
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
-            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
-            event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             
             val rootNode = rootInActiveWindow
             val packageName = event.packageName?.toString() ?: rootNode?.packageName?.toString() ?: return

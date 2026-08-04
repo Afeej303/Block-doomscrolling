@@ -28,4 +28,13 @@ interface BlockDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateSecurity(settings: SecuritySettings)
+
+    @Query("SELECT * FROM focus_settings WHERE id = 1")
+    fun getFocusSettingsFlow(): Flow<FocusSettings?>
+
+    @Query("SELECT * FROM focus_settings WHERE id = 1")
+    suspend fun getFocusSettings(): FocusSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateFocusSettings(settings: FocusSettings)
 }

@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [AppBlockConfig::class, SecuritySettings::class], version = 1, exportSchema = false)
+@Database(entities = [AppBlockConfig::class, SecuritySettings::class, FocusSettings::class], version = 4, exportSchema = false)
 abstract class BlockDatabase : RoomDatabase() {
     abstract fun dao(): BlockDao
 
@@ -20,6 +20,7 @@ abstract class BlockDatabase : RoomDatabase() {
                     BlockDatabase::class.java,
                     "block_database"
                 )
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

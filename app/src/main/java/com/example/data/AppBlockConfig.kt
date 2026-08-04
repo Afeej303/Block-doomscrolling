@@ -11,5 +11,8 @@ data class AppBlockConfig(
     val dailyLimitMinutes: Int = 0, // 0 = unlimited
     val timeUsedTodaySeconds: Long = 0,
     val lastUsedTimestamp: Long = 0,
-    val isBlockedNow: Boolean = false
+    val isBlockedNow: Boolean = false,
+    val shortsLimitMinutes: Int = 0, // 0 = unlimited, only applies if blockShortsReels is false
+    val shortsUsedTodaySeconds: Long = 0,
+    val isShortsBlockedNow: Boolean = false
 )

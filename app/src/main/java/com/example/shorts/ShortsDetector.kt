@@ -9,7 +9,8 @@ data class DetectionResult(
     val shouldBlock: Boolean,
     val isWebCounterpart: Boolean = false,
     val domain: String = "",
-    val blockLabel: String = ""
+    val blockLabel: String = "",
+    val confidence: Int = 0
 )
 
 enum class RulePriority { PRIMARY, SECONDARY, FALLBACK }
@@ -44,11 +45,10 @@ class ShortsDetector {
         },
         DetectionRule("YouTube Player View ID (reel_recycler/reel_viewer)", RulePriority.PRIMARY, 80) { state ->
             state.packageName.contains("youtube") &&
-            state.viewIds.any { it.contains("reel_recycler") || it.contains("reel_viewer") }
+            state.viewIds.any { it.contains("reel_recycler") || it.contains("reel_viewer") || it.contains("shorts_video") }
         },
         DetectionRule("YouTube Web URL Match", RulePriority.PRIMARY, 100) { state ->
-            state.isReliableBrowser && state.viewIds.any { it.contains("url_bar") } &&
-            state.texts.any { it.contains("youtube.com/shorts") }
+            state.isReliableBrowser && (state.texts.any { it.contains("youtube.com/shorts") } || state.contentDescs.any { it.contains("youtube.com/shorts") })
         },
         DetectionRule("YouTube Shorts Activity", RulePriority.FALLBACK, 30) { state ->
             state.packageName.contains("youtube") && state.className.contains("shorts")
@@ -64,8 +64,7 @@ class ShortsDetector {
             state.viewIds.any { it.contains("clips_viewer") || it.contains("clips_video_container") || it.contains("reel_viewer") }
         },
         DetectionRule("Instagram Web URL Match", RulePriority.PRIMARY, 100) { state ->
-            state.isReliableBrowser && state.viewIds.any { it.contains("url_bar") } &&
-            state.texts.any { it.contains("instagram.com/reels") }
+            state.isReliableBrowser && (state.texts.any { it.contains("instagram.com/reels") || it.contains("instagram.com/reel") } || state.contentDescs.any { it.contains("instagram.com/reels") || it.contains("instagram.com/reel") })
         },
         DetectionRule("Instagram Reel Player Class", RulePriority.SECONDARY, 40) { state ->
             state.packageName.contains("instagram") && state.classNames.any { it.contains("reel") } && state.viewIds.any { it.contains("player") }
@@ -102,10 +101,14 @@ class ShortsDetector {
         packageName: String, 
         className: String,
         config: AppBlockConfig?,
-        isReliableBrowser: Boolean
+        isReliableBrowser: Boolean,
+        configs: Map<String, AppBlockConfig> = emptyMap()
     ): DetectionResult {
         
-        if (config == null || !config.blockShortsReels) {
+        val isAppShortsBlocked = config?.blockShortsReels == true || (config?.shortsLimitMinutes ?: 0) > 0
+        val isYoutubeShortsBlocked = configs.values.any { it.packageName.contains("youtube") && it.blockShortsReels } || configs.values.any { it.blockShortsReels }
+        
+        if (!isAppShortsBlocked && !isReliableBrowser) {
             return DetectionResult(false)
         }
 
@@ -146,7 +149,7 @@ class ShortsDetector {
         }
         
         collect(rootNode)
-        
+
         var totalConfidence = 0
         val matchedRuleNames = mutableListOf<String>()
         var isWeb = false
@@ -154,19 +157,23 @@ class ShortsDetector {
         var labelStr = ""
         
         for (rule in rules) {
-            if (rule.matchCondition(state)) {
+            val matched = rule.matchCondition(state)
+
+            if (matched) {
                 totalConfidence += rule.score
                 matchedRuleNames.add("${rule.name} (+${rule.score})")
                 
                 if (rule.name.contains("Web URL Match")) {
                     isWeb = true
-                    webDomain = state.texts.firstOrNull { it.contains("youtube.com/shorts") || it.contains("instagram.com/reels") } ?: ""
+                    webDomain = state.texts.firstOrNull { it.contains("youtube.com/shorts") || it.contains("instagram.com/reel") } 
+                        ?: state.contentDescs.firstOrNull { it.contains("youtube.com/shorts") || it.contains("instagram.com/reel") } 
+                        ?: ""
                 }
             }
         }
         
-        val shouldBlock = totalConfidence >= 100
-        
+        val shouldBlock = totalConfidence >= 50
+
         if (shouldBlock) {
             labelStr = when {
                 state.packageName.contains("youtube") || webDomain.contains("youtube") -> "YouTube Shorts"
@@ -197,6 +204,6 @@ class ShortsDetector {
             )
         }
         
-        return DetectionResult(shouldBlock, isWeb, webDomain, labelStr)
+        return DetectionResult(shouldBlock, isWeb, webDomain, labelStr, totalConfidence)
     }
 }

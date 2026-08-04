@@ -88,8 +88,12 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent) {
         val packageBlocked = intent.getStringExtra("BLOCKED_APP_PACKAGE")
         val nameBlocked = intent.getStringExtra("BLOCKED_APP_NAME")
+        
+        android.util.Log.d("BrowserTrace", "handleIntent called. Package: $packageBlocked, Name: $nameBlocked")
+        
         if (packageBlocked != null && nameBlocked != null) {
             viewModel.blockedAppNotification.value = Pair(packageBlocked, nameBlocked)
+            android.util.Log.d("BrowserTrace", "blockedAppNotification updated")
         }
         if (intent.getBooleanExtra("SHOW_UNLOCK_PROMPT", false)) {
             viewModel.forceShowUnlockPrompt.value = true
@@ -192,19 +196,7 @@ fun MainScreen(viewModel: BlockViewModel) {
                             indicatorColor = AccentPill
                         )
                     )
-                    NavigationBarItem(
-                        selected = selectedTab == 4,
-                        onClick = { viewModel.selectedTab.value = 4 },
-                        icon = { Icon(androidx.compose.material.icons.Icons.Default.Build, contentDescription = "Developer") },
-                        label = { Text("Developer") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ElectricTeal,
-                            selectedTextColor = ElectricTeal,
-                            unselectedIconColor = TextGray,
-                            unselectedTextColor = TextGray,
-                            indicatorColor = AccentPill
-                        )
-                    )
+
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -232,12 +224,12 @@ fun MainScreen(viewModel: BlockViewModel) {
                             viewModel = viewModel,
                             appConfigs = appConfigs
                         )
-                        2 -> com.example.ui.FocusScreen()
+                        2 -> com.example.ui.FocusScreen(viewModel = viewModel)
                         3 -> LockScreen(
                             viewModel = viewModel,
                             securitySettings = securitySettings
                         )
-                        4 -> com.example.ui.DeveloperScreen()
+
                     }
                 }
 
@@ -482,6 +474,13 @@ fun AppUsageCard(viewModel: BlockViewModel, config: AppBlockConfig) {
                         fontSize = 11.sp,
                         color = TextGray
                     )
+                    if (!config.blockShortsReels && config.shortsLimitMinutes > 0) {
+                        Text(
+                            text = "Shorts: ${formatUsageTime(config.shortsUsedTodaySeconds)} / ${config.shortsLimitMinutes}m",
+                            fontSize = 10.sp,
+                            color = ElectricTeal
+                        )
+                    }
                 }
             }
 
@@ -618,6 +617,74 @@ fun RulesScreen(viewModel: BlockViewModel, appConfigs: List<AppBlockConfig>) {
 
 @Composable
 fun RuleCard(viewModel: BlockViewModel, config: AppBlockConfig, isLocked: Boolean) {
+    var showShortsDialog by remember { mutableStateOf(false) }
+    var shortsInputValue by remember(config.shortsLimitMinutes) { mutableStateOf(config.shortsLimitMinutes.toString()) }
+
+    var showDailyDialog by remember { mutableStateOf(false) }
+    var dailyInputValue by remember(config.dailyLimitMinutes) { mutableStateOf(config.dailyLimitMinutes.toString()) }
+
+    if (showShortsDialog) {
+        AlertDialog(
+            onDismissRequest = { showShortsDialog = false },
+            title = { Text("Set Shorts/Reels Budget", color = ThemePrimaryText) },
+            text = {
+                OutlinedTextField(
+                    value = shortsInputValue,
+                    onValueChange = { shortsInputValue = it },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true,
+                    label = { Text("Minutes") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val newVal = shortsInputValue.toIntOrNull() ?: 0
+                    viewModel.updateShortsLimit(config, newVal)
+                    showShortsDialog = false
+                }) {
+                    Text("Save", color = ElectricTeal)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showShortsDialog = false }) {
+                    Text("Cancel", color = TextGray)
+                }
+            },
+            containerColor = SlateCharcoal
+        )
+    }
+
+    if (showDailyDialog) {
+        AlertDialog(
+            onDismissRequest = { showDailyDialog = false },
+            title = { Text("Set Daily App Budget", color = ThemePrimaryText) },
+            text = {
+                OutlinedTextField(
+                    value = dailyInputValue,
+                    onValueChange = { dailyInputValue = it },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true,
+                    label = { Text("Minutes") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val newVal = dailyInputValue.toIntOrNull() ?: 0
+                    viewModel.updateDailyLimit(config, newVal)
+                    showDailyDialog = false
+                }) {
+                    Text("Save", color = ElectricTeal)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDailyDialog = false }) {
+                    Text("Cancel", color = TextGray)
+                }
+            },
+            containerColor = SlateCharcoal
+        )
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = SlateCharcoal),
@@ -723,6 +790,56 @@ fun RuleCard(viewModel: BlockViewModel, config: AppBlockConfig, isLocked: Boolea
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            
+            // Shorts budget slider
+            Column {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "Shorts/Reels Budget", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = ThemePrimaryText)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(enabled = !isLocked) { showShortsDialog = true }
+                            .border(1.dp, if (config.shortsLimitMinutes > 0) ElectricTeal else SlateGrayLight, RoundedCornerShape(6.dp))
+                            .background(Color(0xFF3C3C3C), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (config.shortsLimitMinutes > 0) "${config.shortsLimitMinutes} min" else "No limit",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (config.shortsLimitMinutes > 0) ElectricTeal else BrightLime,
+                            fontSize = 13.sp
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Limit",
+                            tint = if (config.shortsLimitMinutes > 0) ElectricTeal else SlateGrayLight,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+                Slider(
+                    value = config.shortsLimitMinutes.toFloat(),
+                    onValueChange = { viewModel.updateShortsLimit(config, it.toInt()) },
+                    valueRange = 0f..1440f,
+                    steps = 143,
+                    enabled = !isLocked,
+                    colors = SliderDefaults.colors(
+                        thumbColor = ElectricTeal,
+                        activeTrackColor = ElectricTeal,
+                        inactiveTrackColor = SlateGrayLight
+                    )
+                )
+                Text(
+                    text = "If exceeded, the feed is blocked but other app features remain accessible.",
+                    fontSize = 10.sp,
+                    color = TextGray
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
 
             // 2. Budget slider
             Column {
@@ -731,12 +848,28 @@ fun RuleCard(viewModel: BlockViewModel, config: AppBlockConfig, isLocked: Boolea
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(text = "Daily App Budget", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = ThemePrimaryText)
-                    Text(
-                        text = if (config.dailyLimitMinutes > 0) "${config.dailyLimitMinutes} minutes" else "No budget limit",
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (config.dailyLimitMinutes > 0) ElectricTeal else BrightLime,
-                        fontSize = 14.sp
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(enabled = !isLocked) { showDailyDialog = true }
+                            .border(1.dp, if (config.dailyLimitMinutes > 0) ElectricTeal else SlateGrayLight, RoundedCornerShape(6.dp))
+                            .background(Color(0xFF3C3C3C), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (config.dailyLimitMinutes > 0) "${config.dailyLimitMinutes} min" else "No limit",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (config.dailyLimitMinutes > 0) ElectricTeal else BrightLime,
+                            fontSize = 13.sp
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Limit",
+                            tint = if (config.dailyLimitMinutes > 0) ElectricTeal else SlateGrayLight,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
                 Slider(
                     value = config.dailyLimitMinutes.toFloat(),

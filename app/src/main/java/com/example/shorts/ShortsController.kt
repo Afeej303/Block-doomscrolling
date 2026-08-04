@@ -36,17 +36,48 @@ class ShortsController(
         
         val config = configs[packageName] ?: configs.values.find { it.appName == "X (Twitter)" && packageName.contains("twitter") }
         
-        val isBrowser = packageName == "com.android.chrome" || packageName == "org.mozilla.firefox" || packageName.contains("browser")
-        val isReliableBrowser = isBrowser // simplify for now
-
+        val isBrowser = packageName == "com.android.chrome" || 
+                        packageName == "org.mozilla.firefox" || 
+                        packageName == "com.microsoft.emmx" ||
+                        packageName == "com.opera.browser" ||
+                        packageName == "com.duckduckgo.mobile.android" ||
+                        packageName == "com.sec.android.app.sbrowser" ||
+                        packageName.contains("browser")
+        val isReliableBrowser = isBrowser
         val className = event.className?.toString() ?: ""
-        val result = detector.detect(rootNode, packageName, className, config, isReliableBrowser)
 
+        val result = detector.detect(rootNode, packageName, className, config, isReliableBrowser, configs)
+
+        var targetPackage = config?.packageName ?: packageName
+        if (result.isWebCounterpart) {
+            val counterpartConfig = configs.values.find { result.blockLabel.contains(it.appName, ignoreCase = true) || (it.appName == "YouTube" && result.blockLabel.contains("YouTube")) }
+            if (counterpartConfig != null) {
+                targetPackage = counterpartConfig.packageName
+            }
+        }
+        val targetConfig = configs[targetPackage]
+
+        com.example.service.UsageTracker.updateState(targetPackage, result.shouldBlock)
+        
         if (result.shouldBlock) {
-            if (result.isWebCounterpart) {
-                triggerWebCounterpartBlock(result.blockLabel, result.domain)
+            val cfg = targetConfig ?: config
+            val limitMinutes = cfg?.shortsLimitMinutes ?: 0
+            val usedSeconds = cfg?.shortsUsedTodaySeconds ?: 0L
+            val isLimitExceeded = limitMinutes > 0 && usedSeconds >= limitMinutes * 60L
+            val isBlockedFlag = cfg?.isShortsBlockedNow == true
+
+            val shouldBlockReels = if (limitMinutes > 0) {
+                isLimitExceeded || isBlockedFlag
             } else {
-                triggerSurgicalBlock(result.blockLabel)
+                cfg?.blockShortsReels == true
+            }
+            
+            if (shouldBlockReels) {
+                if (result.isWebCounterpart) {
+                    triggerWebCounterpartBlock(result.blockLabel, result.domain)
+                } else {
+                    triggerSurgicalBlock(result.blockLabel)
+                }
             }
         }
     }
@@ -56,13 +87,12 @@ class ShortsController(
     }
 
     private fun triggerSurgicalBlock(label: String) {
-        Log.d("ShortsController", "Blocking $label")
         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
     }
 
     private fun triggerWebCounterpartBlock(appName: String, domain: String) {
-        Log.d("ShortsController", "Web block for $appName ($domain)")
         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        
         val intent = Intent(service, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("BLOCKED_APP_PACKAGE", "browser_bypass_$domain")

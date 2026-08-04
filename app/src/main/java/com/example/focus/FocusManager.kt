@@ -25,7 +25,7 @@ object FocusManager {
     private var isSettingsLockedCached = false
     private var lastAppInfoBlockTime = 0L
 
-    private val allowedPackages = setOf(
+    private val systemAllowedPackages = setOf(
         "com.android.systemui",
         "com.google.android.permissioncontroller",
         "com.google.android.dialer",
@@ -33,13 +33,30 @@ object FocusManager {
         "com.android.phone",
         "com.android.settings"
     )
+
+    private var userAllowedPackages = setOf<String>()
     
+    private var isScheduleEnabled = false
+    private var startHour = 9
+    private var startMinute = 0
+    private var endHour = 17
+    private var endMinute = 0
+    private var activeSchedules: List<com.example.data.FocusScheduleItem> = listOf(
+        com.example.data.FocusScheduleItem(9, 0, 17, 0)
+    )
+    private var isManuallyStarted = false
+    
+    val allowedApps: Set<String>
+        get() = userAllowedPackages
+
     fun start(context: Context) {
+        isManuallyStarted = true
         _state.value = FocusState.Running(0)
         launchFocusLockActivity(context)
     }
     
     fun stop() {
+        isManuallyStarted = false
         _state.value = FocusState.Inactive
     }
 
@@ -47,7 +64,87 @@ object FocusManager {
         isSettingsLockedCached = isLocked
     }
 
+    fun updateAllowedApps(apps: List<String>) {
+        userAllowedPackages = apps.toSet()
+    }
+
+    fun updateSchedules(enabled: Boolean, schedules: List<com.example.data.FocusScheduleItem>) {
+        isScheduleEnabled = enabled
+        activeSchedules = if (schedules.isNotEmpty()) schedules else listOf(com.example.data.FocusScheduleItem(startHour, startMinute, endHour, endMinute))
+        if (schedules.isNotEmpty()) {
+            startHour = schedules.first().startHour
+            startMinute = schedules.first().startMinute
+            endHour = schedules.first().endHour
+            endMinute = schedules.first().endMinute
+        }
+    }
+
+    fun updateSchedule(enabled: Boolean, sHour: Int, sMin: Int, eHour: Int, eMin: Int) {
+        isScheduleEnabled = enabled
+        startHour = sHour
+        startMinute = sMin
+        endHour = eHour
+        endMinute = eMin
+        activeSchedules = listOf(com.example.data.FocusScheduleItem(sHour, sMin, eHour, eMin))
+    }
+
+    fun checkSchedule(context: Context) {
+        if (!isScheduleEnabled || activeSchedules.isEmpty()) {
+            if (_state.value is FocusState.Running && !isManuallyStarted) {
+                stop()
+            }
+            return
+        }
+
+        val cal = java.util.Calendar.getInstance()
+        val currentHour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val currentMinute = cal.get(java.util.Calendar.MINUTE)
+        val currentSeconds = cal.get(java.util.Calendar.SECOND)
+        val currentTime = currentHour * 60 + currentMinute
+
+        val activeSchedule = activeSchedules.firstOrNull { s ->
+            val startTime = s.startHour * 60 + s.startMinute
+            val endTime = s.endHour * 60 + s.endMinute
+            if (startTime < endTime) {
+                currentTime in startTime until endTime
+            } else {
+                currentTime >= startTime || currentTime < endTime
+            }
+        }
+
+        if (activeSchedule != null) {
+            val startTime = activeSchedule.startHour * 60 + activeSchedule.startMinute
+            val endTime = activeSchedule.endHour * 60 + activeSchedule.endMinute
+            // Calculate remaining seconds
+            val remainingMinutes = if (startTime < endTime) {
+                endTime - currentTime - 1
+            } else {
+                if (currentTime >= startTime) {
+                    24 * 60 - currentTime + endTime - 1
+                } else {
+                    endTime - currentTime - 1
+                }
+            }
+            val remainingSeconds = remainingMinutes * 60 + (60 - currentSeconds)
+
+            if (_state.value !is FocusState.Running) {
+                isManuallyStarted = false // System started it
+                _state.value = FocusState.Running(remainingSeconds)
+                launchFocusLockActivity(context)
+            } else {
+                _state.value = FocusState.Running(remainingSeconds)
+            }
+        } else {
+            if (_state.value is FocusState.Running && !isManuallyStarted) {
+                stop()
+            }
+        }
+    }
+
     fun onAccessibilityEvent(context: Context, event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?, packageName: String) {
+        // Check schedule on accessibility events (e.g., when user opens apps)
+        checkSchedule(context)
+
         // Enforce focus mode
         if (_state.value is FocusState.Running) {
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -72,7 +169,7 @@ object FocusManager {
         }
         
         // Allow system screens
-        if (allowedPackages.contains(packageName)) {
+        if (systemAllowedPackages.contains(packageName) || userAllowedPackages.contains(packageName)) {
             return
         }
         

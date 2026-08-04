@@ -37,13 +37,49 @@ class BlockViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = null
         )
 
-    val selectedTab = MutableStateFlow(0) // 0: Dashboard, 1: Block Rules, 2: Security Lock
+    val focusSettings: StateFlow<FocusSettings?> = repository.focusSettings
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    val selectedTab = MutableStateFlow(0) // 0: Dashboard, 1: Block Rules, 2: Security Lock, 3: Focus Session
     val blockedAppNotification = MutableStateFlow<Pair<String, String>?>(null) // (PackageName, AppName)
     val forceShowUnlockPrompt = MutableStateFlow(false)
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
             repository.initializeDefaultConfigsIfNeeded()
+        }
+
+        // Ticker for schedule check from UI side
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.focusSettings.collect { settings ->
+                if (settings != null) {
+                    val allowed = settings.allowedApps.split(",").filter { it.isNotBlank() }
+                    com.example.focus.FocusManager.updateAllowedApps(allowed)
+                    com.example.focus.FocusManager.updateSchedules(
+                        settings.isScheduleEnabled,
+                        settings.getScheduleList()
+                    )
+                    com.example.focus.FocusManager.checkSchedule(application)
+                }
+            }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            while(true) {
+                com.example.focus.FocusManager.checkSchedule(application)
+                kotlinx.coroutines.delay(10000)
+            }
+        }
+    }
+
+    fun updateFocusSettings(settings: FocusSettings) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (isConfigurationLocked()) return@launch
+            repository.updateFocusSettings(settings)
         }
     }
 
@@ -109,6 +145,14 @@ class BlockViewModel(application: Application) : AndroidViewModel(application) {
             if (isConfigurationLocked()) return@launch
             val safeMinutes = minutes.coerceIn(0, 1440)
             repository.updateConfig(config.copy(dailyLimitMinutes = safeMinutes))
+        }
+    }
+
+    fun updateShortsLimit(config: AppBlockConfig, minutes: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (isConfigurationLocked()) return@launch
+            val safeMinutes = minutes.coerceIn(0, 1440)
+            repository.updateConfig(config.copy(shortsLimitMinutes = safeMinutes))
         }
     }
 

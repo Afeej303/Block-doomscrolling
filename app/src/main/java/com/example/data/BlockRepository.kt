@@ -15,6 +15,7 @@ class BlockRepository(private val dao: BlockDao) {
 
     val allConfigs: Flow<List<AppBlockConfig>> = dao.getAllConfigsFlow()
     val securitySettings: Flow<SecuritySettings?> = dao.getSecuritySettingsFlow()
+    val focusSettings: Flow<FocusSettings?> = dao.getFocusSettingsFlow()
 
     suspend fun initializeDefaultConfigsIfNeeded() {
         val currentConfigs = dao.getAllConfigs()
@@ -31,6 +32,10 @@ class BlockRepository(private val dao: BlockDao) {
         if (security == null) {
             dao.insertOrUpdateSecurity(SecuritySettings())
         }
+        val focus = dao.getFocusSettings()
+        if (focus == null) {
+            dao.insertOrUpdateFocusSettings(FocusSettings())
+        }
     }
 
     suspend fun updateConfig(config: AppBlockConfig) {
@@ -41,7 +46,11 @@ class BlockRepository(private val dao: BlockDao) {
         dao.insertOrUpdateSecurity(settings)
     }
 
-    suspend fun incrementAppUsage(packageName: String, secondsPassed: Long): AppBlockConfig? = dbMutex.withLock {
+    suspend fun updateFocusSettings(settings: FocusSettings) {
+        dao.insertOrUpdateFocusSettings(settings)
+    }
+
+    suspend fun incrementAppUsage(packageName: String, secondsPassed: Long, isShorts: Boolean = false): AppBlockConfig? = dbMutex.withLock {
         val config = dao.getConfigForApp(packageName) ?: return null
         val now = System.currentTimeMillis()
         
@@ -56,14 +65,25 @@ class BlockRepository(private val dao: BlockDao) {
             config.timeUsedTodaySeconds + secondsPassed
         }
 
+        val newShortsTimeToday = if (lastDay != today && config.lastUsedTimestamp > 0) {
+            if (isShorts) secondsPassed else 0L
+        } else {
+            config.shortsUsedTodaySeconds + (if (isShorts) secondsPassed else 0L)
+        }
+        
         // Check if limit is active and exceeded
         val limitSeconds = config.dailyLimitMinutes * 60L
         val isBlockedNow = config.dailyLimitMinutes > 0 && newTimeToday >= limitSeconds
 
+        val shortsLimitSeconds = config.shortsLimitMinutes * 60L
+        val isShortsBlockedNow = config.shortsLimitMinutes > 0 && newShortsTimeToday >= shortsLimitSeconds
+        
         val updated = config.copy(
             timeUsedTodaySeconds = newTimeToday,
+            shortsUsedTodaySeconds = newShortsTimeToday,
             lastUsedTimestamp = now,
-            isBlockedNow = isBlockedNow
+            isBlockedNow = isBlockedNow,
+            isShortsBlockedNow = isShortsBlockedNow
         )
         dao.insertOrUpdateConfig(updated)
         updated
@@ -79,8 +99,10 @@ class BlockRepository(private val dao: BlockDao) {
         if (lastDay != today && config.lastUsedTimestamp > 0) {
             val updated = config.copy(
                 timeUsedTodaySeconds = 0,
+                shortsUsedTodaySeconds = 0,
                 lastUsedTimestamp = now,
-                isBlockedNow = false
+                isBlockedNow = false,
+                isShortsBlockedNow = false
             )
             dao.insertOrUpdateConfig(updated)
             return updated
