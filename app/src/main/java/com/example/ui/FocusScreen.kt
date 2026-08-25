@@ -169,8 +169,10 @@ fun FocusScreen(viewModel: BlockViewModel) {
                         Text("Active Focus Schedules", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        val scheduleList = settings.getScheduleList()
-                        scheduleList.forEachIndexed { index, item ->
+                        var draftSchedules by remember(settings.schedules) { mutableStateOf(settings.getScheduleList()) }
+                        val hasUnsavedChanges = draftSchedules != settings.getScheduleList()
+
+                        draftSchedules.forEachIndexed { index, item ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -188,9 +190,9 @@ fun FocusScreen(viewModel: BlockViewModel) {
                                         Text("Start", color = SlateGrayLight, fontSize = 10.sp)
                                         TimePickerButton(item.startHour, item.startMinute, enabled = !isLocked) { h, m ->
                                             if (!isLocked) {
-                                                val newList = scheduleList.toMutableList()
+                                                val newList = draftSchedules.toMutableList()
                                                 newList[index] = item.copy(startHour = h, startMinute = m)
-                                                viewModel.updateFocusSettings(settings.copy(schedules = FocusScheduleItem.serializeList(newList)))
+                                                draftSchedules = newList
                                             }
                                         }
                                     }
@@ -199,9 +201,9 @@ fun FocusScreen(viewModel: BlockViewModel) {
                                         Text("End", color = SlateGrayLight, fontSize = 10.sp)
                                         TimePickerButton(item.endHour, item.endMinute, enabled = !isLocked) { h, m ->
                                             if (!isLocked) {
-                                                val newList = scheduleList.toMutableList()
+                                                val newList = draftSchedules.toMutableList()
                                                 newList[index] = item.copy(endHour = h, endMinute = m)
-                                                viewModel.updateFocusSettings(settings.copy(schedules = FocusScheduleItem.serializeList(newList)))
+                                                draftSchedules = newList
                                             }
                                         }
                                     }
@@ -209,8 +211,8 @@ fun FocusScreen(viewModel: BlockViewModel) {
                                 IconButton(
                                     onClick = {
                                         if (!isLocked) {
-                                            val newList = scheduleList.toMutableList().apply { removeAt(index) }
-                                            viewModel.updateFocusSettings(settings.copy(schedules = FocusScheduleItem.serializeList(newList)))
+                                            val newList = draftSchedules.toMutableList().apply { removeAt(index) }
+                                            draftSchedules = newList
                                         }
                                     },
                                     enabled = !isLocked
@@ -221,20 +223,40 @@ fun FocusScreen(viewModel: BlockViewModel) {
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = {
-                                if (!isLocked) {
-                                    val newList = scheduleList + FocusScheduleItem(9, 0, 17, 0)
-                                    viewModel.updateFocusSettings(settings.copy(schedules = FocusScheduleItem.serializeList(newList)))
-                                }
-                            },
-                            enabled = !isLocked,
-                            colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal),
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Schedule", tint = Color.Black)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Add Another Schedule", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = {
+                                    if (!isLocked) {
+                                        val newList = draftSchedules + FocusScheduleItem(9, 0, 17, 0)
+                                        draftSchedules = newList
+                                    }
+                                },
+                                enabled = !isLocked,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4C4C4C)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Add Schedule", tint = Color.White)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (hasUnsavedChanges) {
+                                Button(
+                                    onClick = {
+                                        if (!isLocked) {
+                                            viewModel.updateFocusSettings(settings.copy(schedules = FocusScheduleItem.serializeList(draftSchedules)))
+                                        }
+                                    },
+                                    enabled = !isLocked,
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Save Schedule", color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }

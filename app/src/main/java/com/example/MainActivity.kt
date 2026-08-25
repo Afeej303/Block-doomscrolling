@@ -1334,7 +1334,7 @@ fun DeviceAdminCard(viewModel: BlockViewModel, isAdminActive: Boolean, isLocked:
             ) {
                 Icon(
                     imageVector = if (isAdminActive) Icons.Default.Shield else Icons.Default.Warning,
-                    contentDescription = "Device Admin Status",
+                    contentDescription = "Admin Status",
                     tint = if (isAdminActive) ElectricTeal else DangerCoral
                 )
                 Text(
@@ -1347,9 +1347,9 @@ fun DeviceAdminCard(viewModel: BlockViewModel, isAdminActive: Boolean, isLocked:
             
             Text(
                 text = if (isAdminActive) {
-                    "Device Administrator is active. ZenScroll cannot be uninstalled without disabling this first."
+                    "Protection is active. App cannot be uninstalled without disabling this first."
                 } else {
-                    "Device Administrator is inactive. Under Android, enabling Device Admin is required to block uninstallation of ZenScroll."
+                    "Protection is inactive. Under Android, enabling Device Admin is required to block uninstallation of the app."
                 },
                 fontSize = 12.sp,
                 color = TextGray,
@@ -1359,7 +1359,7 @@ fun DeviceAdminCard(viewModel: BlockViewModel, isAdminActive: Boolean, isLocked:
             if (isAdminActive) {
                 if (isLocked) {
                     Text(
-                        text = "Protection Locked 🔒\nUnlock settings first using the passcode below to deactivate Device Admin.",
+                        text = "Protection Locked 🔒\nUnlock settings first using the passcode below to deactivate Protection.",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = DangerCoral
@@ -1379,7 +1379,7 @@ fun DeviceAdminCard(viewModel: BlockViewModel, isAdminActive: Boolean, isLocked:
                         colors = ButtonDefaults.buttonColors(containerColor = DangerCoral),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("DEACTIVATE UNINSTALL PROTECTION", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("DISABLE UNINSTALL PROTECTION", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             } else {
@@ -1390,7 +1390,7 @@ fun DeviceAdminCard(viewModel: BlockViewModel, isAdminActive: Boolean, isLocked:
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("ACTIVATE UNINSTALL PROTECTION", color = CarbonBlack, fontWeight = FontWeight.Bold)
+                    Text("ENABLE UNINSTALL PROTECTION", color = CarbonBlack, fontWeight = FontWeight.Bold)
                 }
             }
         }
