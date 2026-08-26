@@ -10,6 +10,11 @@ import com.example.MainActivity
 import com.example.overlay.FocusLockActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 sealed class FocusState {
     object Inactive : FocusState()
@@ -46,16 +51,38 @@ object FocusManager {
     )
     private var isManuallyStarted = false
     
+    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private var manualTimerJob: Job? = null
+
     val allowedApps: Set<String>
         get() = userAllowedPackages
 
-    fun start(context: Context) {
+    fun start(context: Context, durationSeconds: Int = 1800) {
         isManuallyStarted = true
-        _state.value = FocusState.Running(0)
+        _state.value = FocusState.Running(durationSeconds)
         launchFocusLockActivity(context)
+        startManualCountdown(durationSeconds)
     }
     
+    private fun startManualCountdown(durationSeconds: Int) {
+        manualTimerJob?.cancel()
+        manualTimerJob = scope.launch {
+            var current = durationSeconds
+            while (current > 0 && _state.value is FocusState.Running && isManuallyStarted) {
+                delay(1000L)
+                current--
+                if (_state.value is FocusState.Running && isManuallyStarted) {
+                    _state.value = FocusState.Running(current)
+                }
+            }
+            if (_state.value is FocusState.Running && isManuallyStarted && current <= 0) {
+                stop()
+            }
+        }
+    }
+
     fun stop() {
+        manualTimerJob?.cancel()
         isManuallyStarted = false
         _state.value = FocusState.Inactive
     }

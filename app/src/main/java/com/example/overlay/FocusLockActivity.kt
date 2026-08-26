@@ -108,15 +108,6 @@ class FocusLockActivity : ComponentActivity() {
                     Spacer(modifier = Modifier.height(32.dp))
                     
                     AllowedAppsGrid()
-                    
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    Button(
-                        onClick = { FocusManager.stop() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                    ) {
-                        Text("Stop Session", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
                 }
             }
         }

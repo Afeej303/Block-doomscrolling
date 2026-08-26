@@ -50,6 +50,7 @@ fun FocusScreen(viewModel: BlockViewModel) {
     val isLocked = viewModel.isConfigurationLocked()
     
     var showAppPicker by remember { mutableStateOf(false) }
+    var showStartFocusDialog by remember { mutableStateOf(false) }
     var appsList by remember { mutableStateOf<List<AppItemInfo>>(emptyList()) }
     
     LaunchedEffect(Unit) {
@@ -84,6 +85,16 @@ fun FocusScreen(viewModel: BlockViewModel) {
             onSave = { selected ->
                 viewModel.updateFocusSettings(settings.copy(allowedApps = selected.joinToString(",")))
                 showAppPicker = false
+            }
+        )
+    }
+
+    if (showStartFocusDialog) {
+        StartFocusDialog(
+            onDismiss = { showStartFocusDialog = false },
+            onStart = { durationSeconds ->
+                showStartFocusDialog = false
+                FocusManager.start(context, durationSeconds)
             }
         )
     }
@@ -126,16 +137,34 @@ fun FocusScreen(viewModel: BlockViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
             
             if (focusState is FocusState.Running) {
-                Button(
-                    onClick = { FocusManager.stop() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                val remSec = (focusState as FocusState.Running).remainingSeconds
+                val m = remSec / 60
+                val s = remSec % 60
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2C))
                 ) {
-                    Text("Stop Focus Session", color = Color.White, fontWeight = FontWeight.Bold)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Focus Session Active", color = ElectricTeal, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = String.format("%02d:%02d", m, s),
+                            color = Color.White,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             } else {
                 Button(
-                    onClick = { FocusManager.start(context) },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal)
+                    onClick = { showStartFocusDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Start Focus Session", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
@@ -395,5 +424,86 @@ fun AppPickerDialog(
                 Text("Cancel")
             }
         }
+    )
+}
+
+@Composable
+fun StartFocusDialog(
+    onDismiss: () -> Unit,
+    onStart: (Int) -> Unit
+) {
+    var selectedMinutes by remember { mutableStateOf(30) }
+    var customMinutesText by remember { mutableStateOf("") }
+    var isCustom by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Start Focus Session", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Choose session duration:", color = SlateGrayLight, fontSize = 14.sp)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(15, 30, 45, 60).forEach { mins ->
+                        Button(
+                            onClick = { 
+                                selectedMinutes = mins
+                                isCustom = false
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!isCustom && selectedMinutes == mins) ElectricTeal else Color(0xFF3C3C3C)
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (mins >= 60) "${mins / 60}h" else "${mins}m",
+                                color = if (!isCustom && selectedMinutes == mins) Color.Black else Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = customMinutesText,
+                    onValueChange = { 
+                        customMinutesText = it
+                        it.toIntOrNull()?.let { m ->
+                            if (m > 0) {
+                                selectedMinutes = m
+                                isCustom = true
+                            }
+                        }
+                    },
+                    label = { Text("Custom Minutes") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricTeal,
+                        unfocusedBorderColor = SlateGrayLight,
+                        focusedLabelColor = ElectricTeal,
+                        unfocusedLabelColor = SlateGrayLight,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onStart(selectedMinutes * 60) },
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricTeal)
+            ) {
+                Text("Start", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = SlateGrayLight)
+            }
+        },
+        containerColor = Color(0xFF2C2C2C)
     )
 }
