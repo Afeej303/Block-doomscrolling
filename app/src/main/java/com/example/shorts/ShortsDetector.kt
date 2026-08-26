@@ -48,7 +48,11 @@ class ShortsDetector {
             state.viewIds.any { it.contains("reel_recycler") || it.contains("reel_viewer") || it.contains("shorts_video") }
         },
         DetectionRule("YouTube Web URL Match", RulePriority.PRIMARY, 100) { state ->
-            state.isReliableBrowser && (state.texts.any { it.contains("youtube.com/shorts") } || state.contentDescs.any { it.contains("youtube.com/shorts") })
+            state.isReliableBrowser && (state.texts.any { it.contains("youtube.com") } || state.contentDescs.any { it.contains("youtube.com") })
+        },
+        DetectionRule("YouTube Browser Fallback", RulePriority.FALLBACK, 60) { state ->
+            state.isReliableBrowser && (state.texts.any { it.contains("youtube") && (it.contains("home") || it.contains("subscriptions") || it.contains("watch")) } || 
+                                         state.contentDescs.any { it.contains("youtube") && (it.contains("home") || it.contains("subscriptions") || it.contains("watch")) })
         },
         DetectionRule("YouTube Shorts Activity", RulePriority.FALLBACK, 30) { state ->
             state.packageName.contains("youtube") && state.className.contains("shorts")
@@ -64,7 +68,11 @@ class ShortsDetector {
             state.viewIds.any { it.contains("clips_viewer") || it.contains("clips_video_container") || it.contains("reel_viewer") }
         },
         DetectionRule("Instagram Web URL Match", RulePriority.PRIMARY, 100) { state ->
-            state.isReliableBrowser && (state.texts.any { it.contains("instagram.com/reels") || it.contains("instagram.com/reel") } || state.contentDescs.any { it.contains("instagram.com/reels") || it.contains("instagram.com/reel") })
+            state.isReliableBrowser && (state.texts.any { it.contains("instagram.com") || it.contains("l.instagram.com") || it.contains("instagr.am") } || state.contentDescs.any { it.contains("instagram.com") || it.contains("l.instagram.com") || it.contains("instagr.am") })
+        },
+        DetectionRule("Instagram Browser Fallback", RulePriority.FALLBACK, 60) { state ->
+            state.isReliableBrowser && (state.texts.any { it.contains("log in • instagram") || it.contains("instagram photos and videos") || (it.contains("instagram") && (it.contains("log in") || it.contains("sign up"))) } || 
+                                         state.contentDescs.any { it.contains("log in • instagram") || it.contains("instagram photos and videos") || (it.contains("instagram") && (it.contains("log in") || it.contains("sign up"))) })
         },
         DetectionRule("Instagram Reel Player Class", RulePriority.SECONDARY, 40) { state ->
             state.packageName.contains("instagram") && state.classNames.any { it.contains("reel") } && state.viewIds.any { it.contains("player") }
@@ -78,6 +86,14 @@ class ShortsDetector {
         DetectionRule("Facebook Reels View ID", RulePriority.PRIMARY, 80) { state ->
             state.packageName.contains("facebook") &&
             state.viewIds.any { it.contains("reel") || it.contains("clips") }
+        },
+        DetectionRule("Facebook Web Domain Match", RulePriority.PRIMARY, 100) { state ->
+            state.isReliableBrowser && (state.texts.any { it.contains("facebook.com") || it.contains("m.facebook.com") || it.contains("l.instagram.com") || it.contains("fb.com") } || 
+                                         state.contentDescs.any { it.contains("facebook.com") || it.contains("m.facebook.com") || it.contains("l.instagram.com") || it.contains("fb.com") })
+        },
+        DetectionRule("Facebook Browser Fallback", RulePriority.FALLBACK, 60) { state ->
+            state.isReliableBrowser && (state.texts.any { it.contains("log in to facebook") || it.contains("facebook - log in") || (it.contains("facebook") && (it.contains("log in") || it.contains("sign up"))) } || 
+                                         state.contentDescs.any { it.contains("log in to facebook") || it.contains("facebook - log in") || (it.contains("facebook") && (it.contains("log in") || it.contains("sign up"))) })
         },
         
         // TikTok Rules
@@ -163,11 +179,14 @@ class ShortsDetector {
                 totalConfidence += rule.score
                 matchedRuleNames.add("${rule.name} (+${rule.score})")
                 
-                if (rule.name.contains("Web URL Match")) {
+                if (rule.name.contains("Web") || rule.name.contains("Fallback")) {
                     isWeb = true
-                    webDomain = state.texts.firstOrNull { it.contains("youtube.com/shorts") || it.contains("instagram.com/reel") } 
-                        ?: state.contentDescs.firstOrNull { it.contains("youtube.com/shorts") || it.contains("instagram.com/reel") } 
-                        ?: ""
+                    webDomain = when {
+                        rule.name.contains("YouTube") -> "youtube.com"
+                        rule.name.contains("Instagram") -> "instagram.com"
+                        rule.name.contains("Facebook") -> "facebook.com"
+                        else -> "web"
+                    }
                 }
             }
         }
@@ -176,12 +195,12 @@ class ShortsDetector {
 
         if (shouldBlock) {
             labelStr = when {
-                state.packageName.contains("youtube") || webDomain.contains("youtube") -> "YouTube Shorts"
-                state.packageName.contains("instagram") || webDomain.contains("instagram") -> "Instagram Reels"
-                state.packageName.contains("facebook") -> "Facebook Reels"
+                state.packageName.contains("youtube") || webDomain.contains("youtube") -> "YouTube"
+                state.packageName.contains("instagram") || webDomain.contains("instagram") -> "Instagram"
+                state.packageName.contains("facebook") || webDomain.contains("facebook") -> "Facebook"
                 state.packageName.contains("zhiliaoapp") || state.packageName.contains("trill") -> "TikTok"
-                state.packageName.contains("snapchat") -> "Snapchat Spotlight"
-                else -> "Short-form Video"
+                state.packageName.contains("snapchat") -> "Snapchat"
+                else -> "Browser Site"
             }
         }
 

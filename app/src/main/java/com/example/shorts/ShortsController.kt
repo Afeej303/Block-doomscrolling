@@ -49,8 +49,14 @@ class ShortsController(
         val result = detector.detect(rootNode, packageName, className, config, isReliableBrowser, configs)
 
         var targetPackage = config?.packageName ?: packageName
-        if (result.isWebCounterpart) {
-            val counterpartConfig = configs.values.find { result.blockLabel.contains(it.appName, ignoreCase = true) || (it.appName == "YouTube" && result.blockLabel.contains("YouTube")) }
+        if (result.isWebCounterpart || isReliableBrowser) {
+            val counterpartConfig = configs.values.find { 
+                result.blockLabel.contains(it.appName, ignoreCase = true) || 
+                result.domain.contains(it.appName.lowercase()) ||
+                (it.appName == "YouTube" && (result.blockLabel.contains("YouTube") || result.domain.contains("youtube"))) ||
+                (it.appName == "Facebook" && (result.blockLabel.contains("Facebook") || result.domain.contains("facebook"))) ||
+                (it.appName == "Instagram" && (result.blockLabel.contains("Instagram") || result.domain.contains("instagram")))
+            }
             if (counterpartConfig != null) {
                 targetPackage = counterpartConfig.packageName
             }
@@ -59,25 +65,24 @@ class ShortsController(
 
         com.example.service.UsageTracker.updateState(targetPackage, result.shouldBlock)
         
-        if (result.shouldBlock) {
-            val cfg = targetConfig ?: config
-            val limitMinutes = cfg?.shortsLimitMinutes ?: 0
-            val usedSeconds = cfg?.shortsUsedTodaySeconds ?: 0L
-            val isLimitExceeded = limitMinutes > 0 && usedSeconds >= limitMinutes * 60L
-            val isBlockedFlag = cfg?.isShortsBlockedNow == true
+        val cfg = targetConfig ?: config
+        val isAppBlocked = cfg?.isBlockedNow == true || ((cfg?.dailyLimitMinutes ?: 0) > 0 && (cfg?.timeUsedTodaySeconds ?: 0L) >= (cfg?.dailyLimitMinutes ?: 0) * 60L)
+        val limitMinutes = cfg?.shortsLimitMinutes ?: 0
+        val usedSeconds = cfg?.shortsUsedTodaySeconds ?: 0L
+        val isLimitExceeded = limitMinutes > 0 && usedSeconds >= limitMinutes * 60L
+        val isShortsBlockedFlag = cfg?.isShortsBlockedNow == true
 
-            val shouldBlockReels = if (limitMinutes > 0) {
-                isLimitExceeded || isBlockedFlag
-            } else {
-                cfg?.blockShortsReels == true
-            }
-            
-            if (shouldBlockReels) {
-                if (result.isWebCounterpart) {
-                    triggerWebCounterpartBlock(result.blockLabel, result.domain)
-                } else {
-                    triggerSurgicalBlock(result.blockLabel)
-                }
+        val shouldBlockReelsOrSite = if (limitMinutes > 0) {
+            isLimitExceeded || isShortsBlockedFlag || isAppBlocked
+        } else {
+            cfg?.blockShortsReels == true || isAppBlocked
+        }
+
+        if (result.shouldBlock || (isReliableBrowser && result.domain.isNotEmpty() && shouldBlockReelsOrSite)) {
+            if (shouldBlockReelsOrSite) {
+                triggerWebCounterpartBlock(result.blockLabel.ifEmpty { cfg?.appName ?: "Browser Site" }, result.domain.ifEmpty { "blocked_site" })
+            } else if (!isReliableBrowser) {
+                triggerSurgicalBlock(result.blockLabel)
             }
         }
     }
