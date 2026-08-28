@@ -14,12 +14,14 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -67,32 +69,24 @@ class FocusLockActivity : ComponentActivity() {
                     .background(Color(0xFF151312))
             ) {
                 // Background Gradients
-                // Upper ambient tint
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.6f)
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(Color(0xFF2C2522).copy(alpha = 0.6f), Color.Transparent),
-                                radius = 1500f
-                            )
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Upper ambient tint
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF2C2522).copy(alpha = 0.55f), Color.Transparent),
+                            radius = 800f,
+                            center = Offset(size.width / 2f, 0f)
                         )
-                )
-                // Center tint behind ring
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.7f)
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(Color(0xFFc8431e).copy(alpha = 0.12f), Color.Transparent),
-                                radius = 1200f
-                            )
+                    )
+                    // Center tint behind ring
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFFc8431e).copy(alpha = 0.15f), Color.Transparent),
+                            radius = 700f,
+                            center = Offset(size.width / 2f, size.height * 0.35f)
                         )
-                )
+                    )
+                }
 
                 Column(
                     modifier = Modifier
@@ -101,7 +95,38 @@ class FocusLockActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(modifier = Modifier.weight(0.22f))
+                    // Top Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {}) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Face,
+                                contentDescription = "Focus",
+                                tint = Color(0xFF968e89)
+                            )
+                        }
+                        Text(
+                            text = "ZenScroll",
+                            color = Color(0xFFffb5a1),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                        IconButton(onClick = {}) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = Color(0xFF968e89)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(28.dp))
 
                     // Circular Progress Timer
                     Box(
@@ -111,7 +136,7 @@ class FocusLockActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            val strokeWidth = 10.dp.toPx()
+                            val strokeWidth = 7.dp.toPx()
                             // Background track
                             drawArc(
                                 color = Color(0xFF373231),
@@ -182,8 +207,8 @@ fun AllowedAppsCard() {
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1D1918)),
-        border = BorderStroke(1.dp, Color(0xFF2A2524))
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF24201F)),
+        border = BorderStroke(1.dp, Color(0xFF352F2E))
     ) {
         Column(
             modifier = Modifier
@@ -193,7 +218,7 @@ fun AllowedAppsCard() {
         ) {
             Text(
                 text = "ALLOWED APPS",
-                color = Color(0xFF968e89),
+                color = Color(0xFFBCAA99),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.1.em
@@ -203,7 +228,7 @@ fun AllowedAppsCard() {
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val availableWidth = maxWidth
                 val maxTileSize = 52.dp
-                val minTileSize = 40.dp
+                val minTileSize = 44.dp
                 val spacing = 8.dp
                 val totalSpacing = spacing * 3 // Calculate for 4 items to keep size consistent
                 
@@ -252,7 +277,7 @@ fun AllowedAppsCard() {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = label,
-                                    color = Color(0xFF7A706D),
+                                    color = Color(0xFF9A8D8A),
                                     fontSize = 10.sp,
                                     maxLines = 1,
                                     textAlign = TextAlign.Center
