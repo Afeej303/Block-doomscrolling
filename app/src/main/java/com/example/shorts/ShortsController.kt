@@ -34,7 +34,11 @@ class ShortsController(
     override fun onAccessibilityEvent(event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?, packageName: String) {
         if (rootNode == null) return
         
-        val config = configs[packageName] ?: configs.values.find { it.appName == "X (Twitter)" && packageName.contains("twitter") }
+        if (packageName.contains("hermit") || packageName.contains("chimborazo")) {
+            com.example.service.UsageTracker.updateState(packageName, true)
+            triggerWebCounterpartBlock("Hermit", "hermit")
+            return
+        }
         
         val isBrowser = packageName == "com.android.chrome" || 
                         packageName == "org.mozilla.firefox" || 
@@ -42,10 +46,13 @@ class ShortsController(
                         packageName == "com.opera.browser" ||
                         packageName == "com.duckduckgo.mobile.android" ||
                         packageName == "com.sec.android.app.sbrowser" ||
-                        packageName.contains("browser")
+                        packageName.contains("browser") ||
+                        packageName.contains("hermit") ||
+                        packageName.contains("chimborazo")
         val isReliableBrowser = isBrowser
         val className = event.className?.toString() ?: ""
 
+        val config = configs[packageName]
         val result = detector.detect(rootNode, packageName, className, config, isReliableBrowser, configs)
 
         var targetPackage = config?.packageName ?: packageName
@@ -55,7 +62,8 @@ class ShortsController(
                 result.domain.contains(it.appName.lowercase()) ||
                 (it.appName == "YouTube" && (result.blockLabel.contains("YouTube") || result.domain.contains("youtube"))) ||
                 (it.appName == "Facebook" && (result.blockLabel.contains("Facebook") || result.domain.contains("facebook"))) ||
-                (it.appName == "Instagram" && (result.blockLabel.contains("Instagram") || result.domain.contains("instagram")))
+                (it.appName == "Instagram" && (result.blockLabel.contains("Instagram") || result.domain.contains("instagram"))) ||
+                (it.appName == "X (Twitter)" && (result.blockLabel.contains("Twitter") || result.blockLabel.contains("X") || result.domain.contains("x.com") || result.domain.contains("twitter")))
             }
             if (counterpartConfig != null) {
                 targetPackage = counterpartConfig.packageName

@@ -42,6 +42,8 @@ object UsageTracker {
                 val shorts = isShortsActive
                 val repo = repository
                 
+                repo?.checkAndResetAllUsage()
+
                 if (pkg.isNotEmpty() && repo != null) {
                     val updatedConfig = repo.incrementAppUsage(pkg, 1, shorts)
                     if (updatedConfig != null) {

@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 
 sealed class FocusState {
     object Inactive : FocusState()
-    data class Running(val remainingSeconds: Int) : FocusState()
+    data class Running(val remainingSeconds: Int, val totalSeconds: Int = 1800) : FocusState()
     object Paused : FocusState()
     object Finishing : FocusState()
 }
@@ -59,7 +59,7 @@ object FocusManager {
 
     fun start(context: Context, durationSeconds: Int = 1800) {
         isManuallyStarted = true
-        _state.value = FocusState.Running(durationSeconds)
+        _state.value = FocusState.Running(durationSeconds, durationSeconds)
         launchFocusLockActivity(context)
         startManualCountdown(durationSeconds)
     }
@@ -72,7 +72,7 @@ object FocusManager {
                 delay(1000L)
                 current--
                 if (_state.value is FocusState.Running && isManuallyStarted) {
-                    _state.value = FocusState.Running(current)
+                    _state.value = FocusState.Running(current, durationSeconds)
                 }
             }
             if (_state.value is FocusState.Running && isManuallyStarted && current <= 0) {

@@ -95,6 +95,16 @@ class ShortsDetector {
             state.isReliableBrowser && (state.texts.any { it.contains("log in to facebook") || it.contains("facebook - log in") || (it.contains("facebook") && (it.contains("log in") || it.contains("sign up"))) } || 
                                          state.contentDescs.any { it.contains("log in to facebook") || it.contains("facebook - log in") || (it.contains("facebook") && (it.contains("log in") || it.contains("sign up"))) })
         },
+
+        // Twitter / X Rules
+        DetectionRule("Twitter/X Web Domain Match", RulePriority.PRIMARY, 100) { state ->
+            state.isReliableBrowser && (state.texts.any { it.contains("x.com") || it.contains("twitter.com") || it.contains("mobile.twitter.com") || it.contains("t.co") } || 
+                                         state.contentDescs.any { it.contains("x.com") || it.contains("twitter.com") || it.contains("mobile.twitter.com") || it.contains("t.co") })
+        },
+        DetectionRule("Twitter/X Browser Fallback", RulePriority.FALLBACK, 60) { state ->
+            state.isReliableBrowser && (state.texts.any { it.contains("log in to x") || it.contains("log in to twitter") || it.contains("explore / x") || it.contains("notifications / x") || (it.contains("twitter") || it.contains("x corp")) && (it.contains("log in") || it.contains("sign up") || it.contains("post")) } || 
+                                         state.contentDescs.any { it.contains("log in to x") || it.contains("log in to twitter") || it.contains("explore / x") || it.contains("notifications / x") || (it.contains("twitter") || it.contains("x corp")) && (it.contains("log in") || it.contains("sign up") || it.contains("post")) })
+        },
         
         // TikTok Rules
         DetectionRule("TikTok Main App", RulePriority.PRIMARY, 100) { state ->
@@ -185,6 +195,7 @@ class ShortsDetector {
                         rule.name.contains("YouTube") -> "youtube.com"
                         rule.name.contains("Instagram") -> "instagram.com"
                         rule.name.contains("Facebook") -> "facebook.com"
+                        rule.name.contains("Twitter") || rule.name.contains("X") -> "x.com"
                         else -> "web"
                     }
                 }
@@ -198,6 +209,7 @@ class ShortsDetector {
                 state.packageName.contains("youtube") || webDomain.contains("youtube") -> "YouTube"
                 state.packageName.contains("instagram") || webDomain.contains("instagram") -> "Instagram"
                 state.packageName.contains("facebook") || webDomain.contains("facebook") -> "Facebook"
+                state.packageName.contains("twitter") || webDomain.contains("x") -> "X (Twitter)"
                 state.packageName.contains("zhiliaoapp") || state.packageName.contains("trill") -> "TikTok"
                 state.packageName.contains("snapchat") -> "Snapchat"
                 else -> "Browser Site"

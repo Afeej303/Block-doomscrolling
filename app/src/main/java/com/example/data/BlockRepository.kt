@@ -36,6 +36,7 @@ class BlockRepository(private val dao: BlockDao) {
         if (focus == null) {
             dao.insertOrUpdateFocusSettings(FocusSettings())
         }
+        checkAndResetAllUsage()
     }
 
     suspend fun updateConfig(config: AppBlockConfig) {
@@ -50,14 +51,53 @@ class BlockRepository(private val dao: BlockDao) {
         dao.insertOrUpdateFocusSettings(settings)
     }
 
-    suspend fun incrementAppUsage(packageName: String, secondsPassed: Long, isShorts: Boolean = false): AppBlockConfig? = dbMutex.withLock {
-        val config = dao.getConfigForApp(packageName) ?: return null
+    suspend fun checkAndResetAllUsage() = dbMutex.withLock {
         val now = System.currentTimeMillis()
-        
-        // Reset checks: has day changed since last used?
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val lastDay = sdf.format(Date(config.lastUsedTimestamp))
         val today = sdf.format(Date(now))
+        
+        val configs = dao.getAllConfigs()
+        for (config in configs) {
+            if (config.lastUsedTimestamp > 0) {
+                val lastDay = sdf.format(Date(config.lastUsedTimestamp))
+                if (lastDay != today) {
+                    val updated = config.copy(
+                        timeUsedTodaySeconds = 0,
+                        shortsUsedTodaySeconds = 0,
+                        isBlockedNow = false,
+                        isShortsBlockedNow = false
+                    )
+                    dao.insertOrUpdateConfig(updated)
+                }
+            }
+        }
+    }
+
+    suspend fun incrementAppUsage(packageName: String, secondsPassed: Long, isShorts: Boolean = false): AppBlockConfig? = dbMutex.withLock {
+        // First check and reset all usages if day has rolled over past 12:00 AM
+        val now = System.currentTimeMillis()
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val today = sdf.format(Date(now))
+
+        val allConfigs = dao.getAllConfigs()
+        for (cfg in allConfigs) {
+            if (cfg.lastUsedTimestamp > 0) {
+                val lastDay = sdf.format(Date(cfg.lastUsedTimestamp))
+                if (lastDay != today) {
+                    val resetCfg = cfg.copy(
+                        timeUsedTodaySeconds = 0,
+                        shortsUsedTodaySeconds = 0,
+                        isBlockedNow = false,
+                        isShortsBlockedNow = false
+                    )
+                    dao.insertOrUpdateConfig(resetCfg)
+                }
+            }
+        }
+
+        val config = dao.getConfigForApp(packageName) ?: return null
+        
+        val lastDay = sdf.format(Date(config.lastUsedTimestamp))
         
         val newTimeToday = if (lastDay != today && config.lastUsedTimestamp > 0) {
             secondsPassed // Reset and set to elapsed
