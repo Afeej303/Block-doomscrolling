@@ -70,7 +70,7 @@ class FocusLockActivity : ComponentActivity() {
                     isAntiAlias = true
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    color = android.graphics.Color.argb((255 * 0.35f).toInt(), 0xD8, 0x4B, 0x29) // 35% opacity
+                    color = android.graphics.Color.argb((255 * 0.40f).toInt(), 0xD8, 0x4B, 0x29) // 40% opacity
                 }
             }
 
@@ -81,15 +81,25 @@ class FocusLockActivity : ComponentActivity() {
             ) {
                 // Background Gradients
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Full screen faint warm glow (peaks at ring, fades towards bottom)
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFFD84B29).copy(alpha = 0.12f), Color.Transparent),
+                            radius = size.height * 0.85f,
+                            center = Offset(size.width / 2f, size.height * 0.42f)
+                        )
+                    )
                     // Upper ambient tint
                     drawRect(
                         brush = Brush.radialGradient(
-                            colors = listOf(Color(0xFF2C2522).copy(alpha = 0.55f), Color.Transparent),
+                            colors = listOf(Color(0xFF2C2522).copy(alpha = 0.45f), Color.Transparent),
                             radius = 800f,
                             center = Offset(size.width / 2f, 0f)
                         )
                     )
                 }
+
+                val hasAllowedApps = remember { FocusManager.allowedApps.isNotEmpty() }
 
                 Column(
                     modifier = Modifier
@@ -98,7 +108,11 @@ class FocusLockActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(modifier = Modifier.weight(0.28f))
+                    if (hasAllowedApps) {
+                        Spacer(modifier = Modifier.weight(0.60f))
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
 
                     // Circular Progress Timer
                     Box(
@@ -187,11 +201,15 @@ class FocusLockActivity : ComponentActivity() {
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                    if (hasAllowedApps) {
+                        Spacer(modifier = Modifier.weight(1f))
 
-                    // Allowed Apps Card
-                    Box(modifier = Modifier.padding(bottom = 32.dp)) {
-                        AllowedAppsCard()
+                        // Allowed Apps Card
+                        Box(modifier = Modifier.padding(bottom = 32.dp)) {
+                            AllowedAppsCard()
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
