@@ -18,8 +18,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,7 +70,7 @@ class FocusLockActivity : ComponentActivity() {
                     isAntiAlias = true
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    color = android.graphics.Color.argb((255 * 0.20f).toInt(), 0xD8, 0x4B, 0x29) // ~11% opacity
+                    color = android.graphics.Color.argb((255 * 0.35f).toInt(), 0xD8, 0x4B, 0x29) // 35% opacity
                 }
             }
 
@@ -100,38 +98,7 @@ class FocusLockActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Top Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = {}) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Face,
-                                contentDescription = "Focus",
-                                tint = Color(0xFF968e89)
-                            )
-                        }
-                        Text(
-                            text = "ZenScroll",
-                            color = Color(0xFFffb5a1),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                        IconButton(onClick = {}) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = Color(0xFF968e89)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.weight(0.28f))
 
                     // Circular Progress Timer
                     Box(
@@ -142,6 +109,17 @@ class FocusLockActivity : ComponentActivity() {
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val strokeWidth = 10.dp.toPx()
+                            
+                            // Larger, very faint outer glow background for the ring
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(Color(0xFFD84B29).copy(alpha = 0.08f), Color.Transparent),
+                                    radius = size.width * 0.85f,
+                                    center = Offset(size.width / 2f, size.height / 2f)
+                                ),
+                                radius = size.width * 0.85f,
+                                center = Offset(size.width / 2f, size.height / 2f)
+                            )
                             
                             // Faint warm radial fill centered on the ring
                             drawCircle(
@@ -156,8 +134,8 @@ class FocusLockActivity : ComponentActivity() {
 
                             // Blurred orange arc glow
                             drawIntoCanvas { canvas ->
-                                blurredGlowPaint.strokeWidth = strokeWidth + 4.dp.toPx() // slightly wider
-                                blurredGlowPaint.maskFilter = BlurMaskFilter(25.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
+                                blurredGlowPaint.strokeWidth = strokeWidth + 12.dp.toPx() // noticeably wider
+                                blurredGlowPaint.maskFilter = BlurMaskFilter(55.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
                                 
                                 val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
                                 canvas.nativeCanvas.drawArc(
