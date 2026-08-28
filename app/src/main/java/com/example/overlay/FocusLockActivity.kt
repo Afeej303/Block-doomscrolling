@@ -4,6 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import android.graphics.Paint
+import android.graphics.BlurMaskFilter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -63,6 +67,15 @@ class FocusLockActivity : ComponentActivity() {
             // Orange arc represents time remaining (starts full, drains to 0)
             val progress = if (totalSeconds > 0) (displaySeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f) else 0f
 
+            val blurredGlowPaint = remember {
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    color = android.graphics.Color.argb((255 * 0.20f).toInt(), 0xD8, 0x4B, 0x29) // ~11% opacity
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -76,14 +89,6 @@ class FocusLockActivity : ComponentActivity() {
                             colors = listOf(Color(0xFF2C2522).copy(alpha = 0.55f), Color.Transparent),
                             radius = 800f,
                             center = Offset(size.width / 2f, 0f)
-                        )
-                    )
-                    // Center tint behind ring
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Color(0xFFc8431e).copy(alpha = 0.15f), Color.Transparent),
-                            radius = 700f,
-                            center = Offset(size.width / 2f, size.height * 0.35f)
                         )
                     )
                 }
@@ -136,7 +141,34 @@ class FocusLockActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            val strokeWidth = 7.dp.toPx()
+                            val strokeWidth = 10.dp.toPx()
+                            
+                            // Faint warm radial fill centered on the ring
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(Color(0xFFD84B29).copy(alpha = 0.04f), Color.Transparent),
+                                    radius = size.width * 0.55f,
+                                    center = Offset(size.width / 2f, size.height / 2f)
+                                ),
+                                radius = size.width * 0.55f,
+                                center = Offset(size.width / 2f, size.height / 2f)
+                            )
+
+                            // Blurred orange arc glow
+                            drawIntoCanvas { canvas ->
+                                blurredGlowPaint.strokeWidth = strokeWidth + 4.dp.toPx() // slightly wider
+                                blurredGlowPaint.maskFilter = BlurMaskFilter(25.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
+                                
+                                val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
+                                canvas.nativeCanvas.drawArc(
+                                    rect,
+                                    -90f,
+                                    360f * progress,
+                                    false,
+                                    blurredGlowPaint
+                                )
+                            }
+
                             // Background track
                             drawArc(
                                 color = Color(0xFF373231),
