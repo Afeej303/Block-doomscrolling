@@ -15,8 +15,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,45 +51,45 @@ class FocusLockActivity : ComponentActivity() {
             }
             
             val runningState = focusState as? FocusState.Running
-            val baseRemainingSeconds = runningState?.remainingSeconds ?: 0
+            val displaySeconds = runningState?.remainingSeconds ?: 0
             val totalSeconds = runningState?.totalSeconds?.takeIf { it > 0 } ?: 1800
-
-            var displaySeconds by remember { mutableIntStateOf(baseRemainingSeconds) }
-
-            LaunchedEffect(baseRemainingSeconds) {
-                displaySeconds = baseRemainingSeconds
-            }
-
-            LaunchedEffect(Unit) {
-                while (true) {
-                    delay(1000L)
-                    if (displaySeconds > 0) {
-                        displaySeconds--
-                    }
-                }
-            }
 
             val minutes = displaySeconds / 60
             val seconds = displaySeconds % 60
-            val timerText = String.format("%02d : %02d", minutes, seconds)
+            val timerText = String.format("%02d:%02d", minutes, seconds)
             
+            // Orange arc represents time remaining (starts full, drains to 0)
             val progress = if (totalSeconds > 0) (displaySeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f) else 0f
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF131313))
+                    .background(Color(0xFF151312))
             ) {
-                // Wide, subtle ambient glow
+                // Background Gradients
+                // Upper ambient tint
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
+                        .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .fillMaxHeight(0.6f)
                         .background(
                             brush = Brush.radialGradient(
-                                colors = listOf(Color(0xFFc8431e).copy(alpha = 0.15f), Color.Transparent),
-                                radius = 800f
+                                colors = listOf(Color(0xFF2C2522).copy(alpha = 0.6f), Color.Transparent),
+                                radius = 1500f
+                            )
+                        )
+                )
+                // Center tint behind ring
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.7f)
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color(0xFFc8431e).copy(alpha = 0.12f), Color.Transparent),
+                                radius = 1200f
                             )
                         )
                 )
@@ -103,73 +101,28 @@ class FocusLockActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Top Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = {}) {
-                            Icon(
-                                imageVector = Icons.Default.Brush,
-                                contentDescription = "Focus",
-                                tint = Color(0xFF968e89)
-                            )
-                        }
-                        Text(
-                            text = "ZenScroll",
-                            color = Color(0xFFffb5a1),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                        IconButton(onClick = {}) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = Color(0xFF968e89)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.weight(0.22f))
 
                     // Circular Progress Timer
                     Box(
-                        modifier = Modifier.size(300.dp),
+                        modifier = Modifier
+                            .fillMaxWidth(0.76f)
+                            .aspectRatio(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                            val strokeWidth = 8.dp.toPx()
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val strokeWidth = 10.dp.toPx()
                             // Background track
                             drawArc(
-                                color = Color(0xFF2c2c2c),
+                                color = Color(0xFF373231),
                                 startAngle = -90f,
                                 sweepAngle = 360f,
                                 useCenter = false,
                                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                             )
-                            // Outer glow 1 (wide)
-                            drawArc(
-                                color = Color(200, 67, 30, 38), // 0.15 alpha
-                                startAngle = -90f,
-                                sweepAngle = 360f * progress,
-                                useCenter = false,
-                                style = Stroke(width = strokeWidth + 32.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                            // Outer glow 2 (tight)
-                            drawArc(
-                                color = Color(200, 67, 30, 76), // 0.3 alpha
-                                startAngle = -90f,
-                                sweepAngle = 360f * progress,
-                                useCenter = false,
-                                style = Stroke(width = strokeWidth + 12.dp.toPx(), cap = StrokeCap.Round)
-                            )
                             // Active progress arc
                             drawArc(
-                                color = Color(0xFFc8431e),
+                                color = Color(0xFFD84B29),
                                 startAngle = -90f,
                                 sweepAngle = 360f * progress,
                                 useCenter = false,
@@ -183,18 +136,18 @@ class FocusLockActivity : ComponentActivity() {
                             Text(
                                 text = timerText,
                                 color = Color(0xFFffb5a1),
-                                fontSize = 46.sp,
+                                fontSize = 36.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                letterSpacing = 0.05.em
+                                letterSpacing = 0.0.em
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "DEEP FOCUS ACTIVE",
                                 color = Color(0xFF968e89),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.15.em
+                                letterSpacing = 0.1.em
                             )
                         }
                     }
@@ -202,9 +155,9 @@ class FocusLockActivity : ComponentActivity() {
                     Spacer(modifier = Modifier.weight(1f))
 
                     // Allowed Apps Card
-                    AllowedAppsCard()
-
-                    Spacer(modifier = Modifier.weight(1f))
+                    Box(modifier = Modifier.padding(bottom = 32.dp)) {
+                        AllowedAppsCard()
+                    }
                 }
             }
         }
@@ -227,10 +180,10 @@ fun AllowedAppsCard() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1e1e1e)),
-        border = BorderStroke(1.dp, Color(0xFF353534))
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1D1918)),
+        border = BorderStroke(1.dp, Color(0xFF2A2524))
     ) {
         Column(
             modifier = Modifier
@@ -240,62 +193,71 @@ fun AllowedAppsCard() {
         ) {
             Text(
                 text = "ALLOWED APPS",
-                color = Color(0xFFe5e2e1),
+                color = Color(0xFF968e89),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.15.em
+                letterSpacing = 0.1.em
             )
             Spacer(modifier = Modifier.height(16.dp))
             
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.heightIn(max = 140.dp)
-            ) {
-                items(allowedPackages) { pkg ->
-                    var icon: android.graphics.drawable.Drawable? = null
-                    var label = ""
-                    try {
-                        val appInfo = pm.getApplicationInfo(pkg, 0)
-                        icon = pm.getApplicationIcon(appInfo)
-                        label = pm.getApplicationLabel(appInfo).toString()
-                    } catch (e: Exception) {
-                        // Ignore
-                    }
-                    
-                    if (icon != null) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    pm.getLaunchIntentForPackage(pkg)?.let {
-                                        context.startActivity(it)
-                                    }
-                                }
-                        ) {
-                            Box(
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val availableWidth = maxWidth
+                val maxTileSize = 52.dp
+                val minTileSize = 40.dp
+                val spacing = 8.dp
+                val totalSpacing = spacing * 3 // Calculate for 4 items to keep size consistent
+                
+                val itemWidth = ((availableWidth - totalSpacing) / 4).coerceIn(minTileSize, maxTileSize)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    allowedPackages.take(4).forEach { pkg ->
+                        var icon: android.graphics.drawable.Drawable? = null
+                        var label = ""
+                        try {
+                            val appInfo = pm.getApplicationInfo(pkg, 0)
+                            icon = pm.getApplicationIcon(appInfo)
+                            label = pm.getApplicationLabel(appInfo).toString()
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                        
+                        if (icon != null) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .size(48.dp)
-                                    .background(Color(0xFF2a2a2a), RoundedCornerShape(12.dp))
-                                    .border(1.dp, Color(0xFF353534), RoundedCornerShape(12.dp)),
-                                contentAlignment = Alignment.Center
+                                    .width(itemWidth)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        pm.getLaunchIntentForPackage(pkg)?.let {
+                                            context.startActivity(it)
+                                        }
+                                    }
                             ) {
-                                Image(
-                                    bitmap = icon.toBitmap().asImageBitmap(),
-                                    contentDescription = label,
-                                    modifier = Modifier.size(32.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(itemWidth)
+                                        .background(Color(0xFF302B2A), RoundedCornerShape(12.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = icon.toBitmap().asImageBitmap(),
+                                        contentDescription = label,
+                                        modifier = Modifier.size(itemWidth * 0.6f)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = label,
+                                    color = Color(0xFF7A706D),
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    textAlign = TextAlign.Center
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = label,
-                                color = Color(0xFF968e89),
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                textAlign = TextAlign.Center
-                            )
                         }
                     }
                 }

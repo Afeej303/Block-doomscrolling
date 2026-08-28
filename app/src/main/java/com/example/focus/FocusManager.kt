@@ -154,12 +154,19 @@ object FocusManager {
             }
             val remainingSeconds = remainingMinutes * 60 + (60 - currentSeconds)
 
+            val totalMinutes = if (startTime < endTime) {
+                endTime - startTime
+            } else {
+                24 * 60 - startTime + endTime
+            }
+            val totalSeconds = totalMinutes * 60
+
             if (_state.value !is FocusState.Running) {
                 isManuallyStarted = false // System started it
-                _state.value = FocusState.Running(remainingSeconds)
+                _state.value = FocusState.Running(remainingSeconds, totalSeconds)
                 launchFocusLockActivity(context)
             } else {
-                _state.value = FocusState.Running(remainingSeconds)
+                _state.value = FocusState.Running(remainingSeconds, totalSeconds)
             }
         } else {
             if (_state.value is FocusState.Running && !isManuallyStarted) {
