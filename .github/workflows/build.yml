@@ -21,8 +21,12 @@ jobs:
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Setup Gradle Wrapper
-      run: gradle wrapper
+    - name: Generate Gradle Wrapper on the fly
+      run: |
+        GRADLE_VERSION=8.5
+        wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip
+        unzip -q gradle-${GRADLE_VERSION}-bin.zip
+        ./gradle-${GRADLE_VERSION}/bin/gradle wrapper --gradle-version ${GRADLE_VERSION}
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
