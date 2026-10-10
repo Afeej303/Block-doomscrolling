@@ -30,16 +30,111 @@ object FocusManager {
     private var isSettingsLockedCached = false
     private var lastAppInfoBlockTime = 0L
 
-    private val systemAllowedPackages = setOf(
+    private val staticSystemAllowedPackages = setOf(
+        "android",
+        "com.android.intentresolver",
         "com.android.systemui",
         "com.google.android.permissioncontroller",
+        "com.android.permissioncontroller",
+        "com.google.android.packageinstaller",
+        "com.android.packageinstaller",
+        "com.google.android.documentsui",
+        "com.android.documentsui",
+        "com.android.externalstorage",
+        "com.google.android.photopicker",
+        "com.android.photopicker",
+        "com.google.android.providers.media.module",
+        "com.android.providers.media.module",
+        "com.google.android.gms",
+        "com.google.android.gsf",
         "com.google.android.dialer",
+        "com.android.dialer",
         "com.android.server.telecom",
         "com.android.phone",
-        "com.android.settings"
+        "com.android.incallui",
+        "com.samsung.android.dialer",
+        "com.samsung.android.incallui",
+        "com.samsung.android.app.telephonyui",
+        "com.samsung.android.permissioncontroller",
+        "com.android.settings",
+        "com.android.settings.intelligence",
+        "com.android.certinstaller",
+        "com.android.captiveportallogin",
+        "com.android.printspooler",
+        "com.android.companiondevicemanager",
+        "com.google.android.marvin.talkback"
     )
 
+    private val knownKeyboardPackages = setOf(
+        "com.google.android.inputmethod.latin",
+        "com.google.android.apps.inputmethod.hindi",
+        "com.google.android.apps.inputmethod.cantonese",
+        "com.google.android.apps.inputmethod.zhuyin",
+        "com.google.android.apps.inputmethod.korean",
+        "com.samsung.android.honeyboard",
+        "com.touchtype.swiftkey",
+        "com.android.inputmethod.latin",
+        "com.syntellia.fleksy.keyboard",
+        "com.grammarly.android.keyboard",
+        "com.kika.keyboard",
+        "com.nuance.swype.dtc",
+        "com.facemoji.lite",
+        "com.anysoftkeyboard",
+        "org.pocketworkstation.pckeyboard"
+    )
+
+    @Volatile
+    private var cachedImePackages = setOf<String>()
+    private var lastImeQueryTime = 0L
+
+    private fun isKeyboardOrInputService(context: Context, packageName: String): Boolean {
+        if (knownKeyboardPackages.contains(packageName)) return true
+
+        val lower = packageName.lowercase()
+        if (lower.contains("inputmethod") ||
+            lower.contains("honeyboard") ||
+            lower.contains("swiftkey") ||
+            lower.contains("keyboard") ||
+            lower.contains("gboard") ||
+            lower.endsWith(".ime")) {
+            return true
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastImeQueryTime > 30000L || cachedImePackages.isEmpty()) {
+            try {
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                val imes = imm?.enabledInputMethodList ?: emptyList()
+                val imePkgs = mutableSetOf<String>()
+                imes.forEach { imePkgs.add(it.packageName) }
+                imm?.inputMethodList?.forEach { imePkgs.add(it.packageName) }
+                cachedImePackages = imePkgs
+                lastImeQueryTime = now
+            } catch (e: Exception) {
+                Log.e("FocusManager", "Error querying InputMethodManager", e)
+            }
+        }
+
+        return cachedImePackages.contains(packageName)
+    }
+
+    fun isAllowedSystemOrService(context: Context, packageName: String): Boolean {
+        if (packageName.isBlank()) return true
+        if (packageName == "android" || packageName.startsWith("com.android.internal")) return true
+        if (staticSystemAllowedPackages.contains(packageName)) return true
+        if (isKeyboardOrInputService(context, packageName)) return true
+
+        val lower = packageName.lowercase()
+        if (lower.contains("talkback") || lower.contains("accessibility") || lower.contains("autofill")) {
+            return true
+        }
+
+        return false
+    }
+
     private var userAllowedPackages = setOf<String>()
+    private val _allowedApps = MutableStateFlow<Set<String>>(emptySet())
+    val allowedAppsFlow: StateFlow<Set<String>> = _allowedApps
     
     private var isScheduleEnabled = false
     private var startHour = 9
@@ -55,7 +150,7 @@ object FocusManager {
     private var manualTimerJob: Job? = null
 
     val allowedApps: Set<String>
-        get() = userAllowedPackages
+        get() = _allowedApps.value
 
     fun start(context: Context, durationSeconds: Int = 1800) {
         isManuallyStarted = true
@@ -92,7 +187,9 @@ object FocusManager {
     }
 
     fun updateAllowedApps(apps: List<String>) {
-        userAllowedPackages = apps.toSet()
+        val set = apps.toSet()
+        userAllowedPackages = set
+        _allowedApps.value = set
     }
 
     fun updateSchedules(enabled: Boolean, schedules: List<com.example.data.FocusScheduleItem>) {
@@ -192,6 +289,8 @@ object FocusManager {
     }
 
     private fun enforceFocus(context: Context, packageName: String, className: String?) {
+        if (packageName.isBlank()) return
+
         // Allow our own app, but ensure they don't navigate away from LockActivity
         if (packageName == context.packageName) {
             if (className != null && className.contains("FocusLockActivity")) {
@@ -202,8 +301,8 @@ object FocusManager {
             return
         }
         
-        // Allow system screens
-        if (systemAllowedPackages.contains(packageName) || userAllowedPackages.contains(packageName)) {
+        // Allow system screens, services (keyboards, intent resolvers, dialogs, etc.) or user-allowed apps
+        if (isAllowedSystemOrService(context, packageName) || userAllowedPackages.contains(packageName)) {
             return
         }
         

@@ -34,9 +34,10 @@ class ShortsController(
     override fun onAccessibilityEvent(event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?, packageName: String) {
         if (rootNode == null) return
         
-        if (packageName.contains("hermit") || packageName.contains("chimborazo")) {
+        if (packageName.contains("hermit") || packageName.contains("chimborazo") || packageName.contains("opera.mini")) {
+            val appName = if (packageName.contains("opera.mini")) "Opera Mini" else "Hermit"
             com.example.service.UsageTracker.updateState(packageName, true)
-            triggerWebCounterpartBlock("Hermit", "hermit")
+            triggerWebCounterpartBlock(appName, packageName)
             return
         }
         
@@ -48,7 +49,8 @@ class ShortsController(
                         packageName == "com.sec.android.app.sbrowser" ||
                         packageName.contains("browser") ||
                         packageName.contains("hermit") ||
-                        packageName.contains("chimborazo")
+                        packageName.contains("chimborazo") ||
+                        packageName.contains("opera")
         val isReliableBrowser = isBrowser
         val className = event.className?.toString() ?: ""
 
